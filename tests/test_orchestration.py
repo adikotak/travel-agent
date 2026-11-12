@@ -2,8 +2,10 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from pydantic_ai.models.function import FunctionModel
 
 from tests.factories import at, make_flight, make_user
+from travel.agent.parse import parse_agent
 from travel.models import (
     ApprovalStatus,
     BookingIntent,
@@ -194,3 +196,16 @@ def test_disruption_rebooks_and_emails_traveler_unprompted(parses, traveler):
     assert email.thread == thread
     assert email.to_addresses == [traveler.email]
     assert intent.itineraries.get(status=ItineraryStatus.ACTIVE).legs() == [replacement]
+
+
+@pytest.mark.django_db
+def test_failed_processing_stores_nothing(traveler):
+    """If the parser fails mid-email, the inbound email, thread, and trip are all rolled back."""
+
+    def fail(messages, info):
+        raise RuntimeError("model unavailable")
+
+    with parse_agent.override(model=FunctionModel(fail)), pytest.raises(RuntimeError):
+        send(traveler, "SFO to JFK")
+    assert not EmailThread.objects.exists()
+    assert not BookingIntent.objects.exists()

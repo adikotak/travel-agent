@@ -3,6 +3,7 @@ import re
 from datetime import datetime
 
 from django.conf import settings
+from django.db import transaction
 
 from travel.models import BookingIntent, Email, EmailDirection, EmailThread, User
 from travel.services.trips import handle_email
@@ -24,6 +25,7 @@ def _tagged_intent(subject: str, body: str, sender: User) -> BookingIntent | Non
     return BookingIntent.objects.filter(pk=int(match.group(1)), traveler=sender).first()
 
 
+@transaction.atomic
 def receive_email(
     from_address: str,
     subject: str,
@@ -31,7 +33,11 @@ def receive_email(
     now: datetime,
     thread: EmailThread | None = None,
 ) -> EmailThread:
-    """Accept an email sent to the agent and process it; returns the thread it landed on."""
+    """Accept an email sent to the agent and process it; returns the thread it landed on.
+
+    All-or-nothing: if any step fails (e.g. the LLM call), nothing is stored, so
+    the sender can simply resend instead of leaving a half-processed thread.
+    """
     sender = User.objects.filter(email__iexact=from_address).first()
     if thread is None:
         intent = _tagged_intent(subject, body, sender) if sender else None
