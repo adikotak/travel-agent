@@ -238,3 +238,46 @@ def test_airline_restriction_filters_offered_options(parses, traveler):
     flights = booked.legs() if booked else []
     assert all(f.airline == "UA" for f in flights)
     assert all(label.split()[0] == "UA" for label in (o.label for o in offered))
+
+
+@pytest.mark.django_db
+def test_picks_split_across_replies_are_combined(parses, traveler):
+    """Picking the outbound in one reply and the return in the next books both, instead of
+    asking again for the direction picked earlier."""
+    # Only the over-budget DL fares match the preference, so the agent proposes instead of booking.
+    traveler.preferred_airlines = ["DL"]
+    traveler.save()
+    for origin, destination, days_out in (("SFO", "JFK", 20), ("JFK", "SFO", 23)):
+        make_flight(
+            origin=origin,
+            destination=destination,
+            days_out=days_out,
+            hour=7,
+            price=Decimal("300"),
+            save=True,
+        )
+        make_flight(
+            origin=origin,
+            destination=destination,
+            days_out=days_out,
+            hour=8,
+            airline="DL",
+            flight_number=f"DL{days_out}",
+            price=Decimal("520"),
+            save=True,
+        )
+    parses.append(trip(20, return_date=(NOW + timedelta(days=23)).date().isoformat()))
+    thread = send(traveler, "SFO to JFK and back")
+    offered = [OfferedOption.model_validate(o) for o in last_outbound(thread).options]
+    outbound = next(o.number for o in offered if o.direction == "Outbound")
+    inbound = next(o.number for o in offered if o.direction == "Return")
+
+    parses.append({"kind": "option-selection", "option_numbers": [outbound]})
+    send(traveler, "first one for outbound", thread=thread)
+    assert "Which return option" in last_outbound(thread).body
+
+    parses.append({"kind": "option-selection", "option_numbers": [inbound]})
+    send(traveler, "and the first return", thread=thread)
+    intent = BookingIntent.objects.get()
+    assert intent.status == BookingIntentStatus.BOOKED
+    assert len(intent.itineraries.get(status=ItineraryStatus.ACTIVE).legs()) == 2

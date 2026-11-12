@@ -24,6 +24,7 @@ from travel.models import (
     BookingIntent,
     BookingIntentStatus,
     Email,
+    EmailDirection,
     EmailThread,
     Flight,
     Itinerary,
@@ -392,8 +393,8 @@ def _handle_selection(
     now: datetime,
 ) -> None:
     offered = {o.number: o for o in _last_offer(email.thread)}
-    picked = [offered[n] for n in selection.option_numbers if n in offered]
-    if intent is None or not picked or len(picked) != len(selection.option_numbers):
+    new_picks = [offered[n] for n in selection.option_numbers if n in offered]
+    if intent is None or not new_picks or len(new_picks) != len(selection.option_numbers):
         _reply(
             email,
             sender,
@@ -404,28 +405,34 @@ def _handle_selection(
             ],
         )
         return
-    missing = {o.direction for o in offered.values()} - {o.direction for o in picked}
+    # Picks can arrive over several replies; a newer pick replaces an older one per direction.
+    by_direction = {o.direction: o for o in [*_earlier_picks(email.thread, offered), *new_picks]}
+    picked = list(by_direction.values())
+    missing = {o.direction for o in offered.values()} - set(by_direction)
     if missing:
-        _reply(
+        clarification = _reply(
             email,
             sender,
             ReplyPurpose.CLARIFICATION,
             now,
+            points=[f"noted option {o.number} for {o.direction.lower()}" for o in picked],
             questions=[f"Which {d.lower()} option would you like?" for d in sorted(missing)],
         )
+        clarification.card["picked"] = [o.number for o in picked]
+        clarification.save(update_fields=["card", "updated_at"])
         return
     flight_ids = [fid for o in picked for fid in o.flight_ids]
     flights = sorted(Flight.objects.filter(pk__in=flight_ids), key=lambda f: f.departs_at)
     log_action(
         intent,
         ActionKind.PARSED_REQUEST,
-        f"selected options {selection.option_numbers}",
+        f"selected options {sorted(o.number for o in picked)}",
         email=email,
     )
     if all(o.can_book_now for o in picked):
         policy = _active_policy()
         itinerary = book_for_intent(
-            intent, flights, policy, now, f"traveler picked {selection.option_numbers}"
+            intent, flights, policy, now, f"traveler picked {sorted(o.number for o in picked)}"
         )
         _reply(
             email,
@@ -438,6 +445,18 @@ def _handle_selection(
         return
     reasons = [r for o in picked for r in o.reasons]
     _escalate(intent, email, flights, reasons, now)
+
+
+def _earlier_picks(thread: EmailThread, offered: dict[int, OfferedOption]) -> list[OfferedOption]:
+    """Options already picked in replies since the latest offer, recorded on our follow-ups."""
+    offer_email = thread.emails.exclude(options=[]).order_by("-sent_at", "-pk").first()
+    if offer_email is None:
+        return []
+    follow_ups = thread.emails.filter(
+        direction=EmailDirection.OUTBOUND, pk__gt=offer_email.pk
+    ).order_by("pk")
+    numbers = [n for e in follow_ups for n in e.card.get("picked", [])]
+    return [offered[n] for n in numbers if n in offered]
 
 
 def _handle_approval_decision(
