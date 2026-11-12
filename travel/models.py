@@ -110,6 +110,8 @@ class User(AbstractUser):
         choices=SeatPreference.choices,
         default=SeatPreference.NO_PREFERENCE,
     )
+    prefers_nonstop = models.BooleanField(default=False)
+    avoids_red_eyes = models.BooleanField(default=False)
     preferred_airlines = models.JSONField(default=list, blank=True)
     frequent_flyer_numbers = models.JSONField(
         default=dict,
@@ -160,8 +162,18 @@ class BillableCode(TimestampedModel):
         return self.code
 
 
+RED_EYE_START_HOUR = 21
+RED_EYE_END_HOUR = 5
+
+
 class Flight(TimestampedModel):
-    """One purchasable fare on a scheduled flight; each cabin on a flight is its own row."""
+    """One purchasable fare on a scheduled flight; each cabin on a flight is its own row.
+
+    `departs_at` / `arrives_at` are local wall-clock times at their airports
+    (stored with UTC tzinfo, since we keep no airport time zones), so they can be
+    compared with a traveler's local deadlines and with other legs at the same
+    airport. `duration_minutes` is the authoritative elapsed time.
+    """
 
     airline = models.CharField(max_length=3)
     flight_number = models.CharField(max_length=8)
@@ -174,6 +186,11 @@ class Flight(TimestampedModel):
     price = models.DecimalField(max_digits=10, decimal_places=2)
     is_refundable = models.BooleanField(default=False)
     seats_left = models.PositiveIntegerField()
+
+    @property
+    def is_red_eye(self) -> bool:
+        hour = self.departs_at.hour
+        return hour >= RED_EYE_START_HOUR or hour < RED_EYE_END_HOUR
 
     def __str__(self) -> str:
         route = f"{self.origin}-{self.destination}"
