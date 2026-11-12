@@ -50,9 +50,9 @@ Consult on demand:
    data lifecycle, product semantics, public API contracts, and broad
    behavior changes: present the proposal and wait for explicit approval, even
    if other categories of fixes were pre-approved.
-2. **Confirm before outward-facing actions.** Do not commit, push, open PRs, or
-   call external services unless the user asked for that specific action.
-   "Make a change" is not "commit and push it."
+2. **Commit and push after each verified unit of work** to `main`. Never
+   force-push. Confirm before other outward-facing actions (opening PRs,
+   calling external services).
 3. **Never fabricate identifiers.** Ticket IDs, UUIDs, API keys, URLs, resume
    IDs — ask if you don't have them.
 4. **Secrets stay out of the repo and out of prompts.** Read config from `.env`
