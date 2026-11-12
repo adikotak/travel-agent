@@ -209,3 +209,32 @@ def test_failed_processing_stores_nothing(traveler):
         send(traveler, "SFO to JFK")
     assert not EmailThread.objects.exists()
     assert not BookingIntent.objects.exists()
+
+
+@pytest.mark.django_db
+def test_airline_restriction_filters_offered_options(parses, traveler):
+    """'Only United' becomes a trip constraint: re-offered options contain no other airline,
+    and the restriction is recorded as a revision like any other change."""
+    for airline, price in (("UA", "380"), ("DL", "300"), ("AA", "310")):
+        make_flight(
+            origin="SFO",
+            destination="JFK",
+            days_out=20,
+            airline=airline,
+            flight_number=f"{airline}9",
+            price=Decimal(price),
+            save=True,
+        )
+    traveler.preferred_airlines = ["UA"]
+    traveler.save()
+    parses.append(trip(20))
+    thread = send(traveler, "SFO to JFK")
+    parses.append({"kind": "trip-details", "airlines": ["UA"]})
+    send(traveler, "can you show me only united options", thread=thread)
+    intent = BookingIntent.objects.get()
+    assert intent.constraints["airlines"] == ["UA"]
+    booked = intent.itineraries.filter(status=ItineraryStatus.ACTIVE).first()
+    offered = [OfferedOption.model_validate(o) for o in last_outbound(thread).options]
+    flights = booked.legs() if booked else []
+    assert all(f.airline == "UA" for f in flights)
+    assert all(label.split()[0] == "UA" for label in (o.label for o in offered))

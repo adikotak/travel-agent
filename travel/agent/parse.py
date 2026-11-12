@@ -26,6 +26,11 @@ class TripDetails(BaseModel):
         "commitment there (meeting, dinner).",
     )
     requested_cabin: Cabin | None = None
+    airlines: list[str] | None = Field(
+        default=None,
+        description="Two-letter airline codes the sender wants to fly exclusively "
+        "(e.g. 'only United' -> ['UA']). An empty list clears a previous restriction.",
+    )
     is_client_billable: bool | None = Field(
         default=None, description="True if the trip is for client work billed to a client."
     )

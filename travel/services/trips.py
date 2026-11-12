@@ -57,6 +57,7 @@ TRIP_FIELDS = (
     "return_date",
     "arrive_outbound_by",
     "requested_cabin",
+    "airlines",
     "is_client_billable",
 )
 
@@ -94,7 +95,13 @@ def handle_email(email: Email, sender: User, now: datetime) -> None:
         case CancelTrip():
             _handle_cancel(email, sender, intent, now)
         case Other():
-            _reply(email, sender, ReplyPurpose.OTHER, now, points=[parsed.summary])
+            _reply(
+                email,
+                sender,
+                ReplyPurpose.OTHER,
+                now,
+                points=[f"the sender wrote: {parsed.summary}", "no changes were made to the trip"],
+            )
 
 
 def _reply(
@@ -243,9 +250,12 @@ def plan_trip(intent: BookingIntent, email: Email, now: datetime) -> None:
 
     plans = []
     for direction, origin, destination, day in legs:
-        evaluations = evaluate_options(
-            find_options(origin, destination, day), intent.traveler.seniority, rules, now.date()
-        )
+        options = [
+            option
+            for option in find_options(origin, destination, day)
+            if not constraints.airlines or set(option.airlines) <= set(constraints.airlines)
+        ]
+        evaluations = evaluate_options(options, intent.traveler.seniority, rules, now.date())
         ranked = rank(
             evaluations,
             intent.traveler,

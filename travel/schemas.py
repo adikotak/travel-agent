@@ -20,6 +20,7 @@ class TripConstraints(BaseModel):
     return_date: date | None = None
     arrive_outbound_by: datetime | None = None
     requested_cabin: Cabin | None = None
+    airlines: list[str] = Field(default_factory=list)
     is_client_billable: bool = False
     notes: str = ""
 

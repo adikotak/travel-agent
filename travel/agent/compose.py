@@ -72,6 +72,11 @@ def _facts(ctx: RunContext[ReplyFacts]) -> str:
         lines.append(f"{len(facts.questions)} question(s) for the recipient are listed below.")
     if facts.options:
         lines.append(f"{len(facts.options)} numbered options are listed below the message.")
+    if not facts.options and not facts.itinerary and not facts.questions:
+        lines.append(
+            "Nothing is attached below this message: do not mention options, flights, or "
+            "details 'below', and do not imply any action was taken beyond the points."
+        )
     return "\n".join(lines)
 
 
