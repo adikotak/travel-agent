@@ -18,6 +18,7 @@ class Seniority(models.TextChoices):
     INDIVIDUAL_CONTRIBUTOR = "individual-contributor", "Individual Contributor"
     MANAGER = "manager", "Manager"
     DIRECTOR = "director", "Director"
+    VICE_PRESIDENT = "vice-president", "Vice President"
     EXECUTIVE = "executive", "Executive"
 
 
@@ -146,6 +147,11 @@ class BillableCode(TimestampedModel):
     client_name = models.CharField(max_length=255, blank=True)
     is_client_billable = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    policy_overrides = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Client contract rules, merged over the company policy rules for trips billed to this code.",
+    )
 
     def __str__(self) -> str:
         return self.code
