@@ -56,8 +56,8 @@ compose_agent = Agent(
     instructions=(
         "You are a corporate travel agent writing an email reply. Write a short, warm, "
         "plain-text message (2-5 sentences) covering the purpose and points provided. "
-        "Ask every question listed. Do not list flights, prices, or itinerary details: "
-        "those are appended below your text automatically, so refer to them as 'below'. "
+        "Do not list flights, prices, itinerary details, or the questions: those are "
+        "appended below your text automatically, so refer to them as 'below'. "
         "Never state a fact that isn't in the points. No subject line, no signature."
     ),
 )
@@ -68,7 +68,8 @@ def _facts(ctx: RunContext[ReplyFacts]) -> str:
     facts = ctx.deps
     lines = [f"Purpose: {facts.purpose.label}.", f"Recipient: {facts.recipient_name}."]
     lines += [f"Point: {point}" for point in facts.points]
-    lines += [f"Question to ask: {question}" for question in facts.questions]
+    if facts.questions:
+        lines.append(f"{len(facts.questions)} question(s) for the recipient are listed below.")
     if facts.options:
         lines.append(f"{len(facts.options)} numbered options are listed below the message.")
     return "\n".join(lines)
@@ -98,6 +99,8 @@ def render_options(options: list[OptionFact]) -> str:
 def render_body(prose: str, facts: ReplyFacts) -> str:
     """Assemble the email: model prose, then exact options/itinerary, then the trip tag."""
     parts = [prose.strip()]
+    if facts.questions:
+        parts.append("\n".join(f"• {question}" for question in facts.questions))
     if facts.options:
         parts.append(render_options(facts.options))
         parts.append("Reply with the option number(s) you'd like.")

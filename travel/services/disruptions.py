@@ -19,7 +19,7 @@ from travel.ranking import rank
 from travel.schemas import TripConstraints
 from travel.search import MIN_CONNECTION, TravelOption, find_options
 from travel.services.actions import log_action
-from travel.services.booking import rebook_itinerary
+from travel.services.booking import rebook_itinerary, split_directions
 
 
 class DisruptionResponse(models.TextChoices):
@@ -40,13 +40,6 @@ class DisruptionOutcome:
     summary: str
     decision: DirectionDecision | None = None
     rebooked_itinerary: Itinerary | None = None
-
-
-def _direction_legs(legs: list[Flight], flight: Flight, destination: str) -> list[Flight]:
-    """The legs of the direction (outbound or return) that contains `flight`."""
-    outbound_end = next(i for i, leg in enumerate(legs) if leg.destination == destination)
-    outbound, inbound = legs[: outbound_end + 1], legs[outbound_end + 1 :]
-    return outbound if flight in outbound else inbound
 
 
 def _delay_breaks_plans(
@@ -78,8 +71,9 @@ def _respond(itinerary: Itinerary, event: DisruptionEvent, now: datetime) -> Dis
     flight = event.flight
     intent = itinerary.booking_intent
     constraints = TripConstraints.model_validate(intent.constraints)
-    direction = _direction_legs(itinerary.legs(), flight, constraints.destination)
-    is_outbound = direction[-1].destination == constraints.destination
+    outbound, inbound = split_directions(itinerary.legs(), constraints.destination)
+    is_outbound = flight in outbound
+    direction = outbound if is_outbound else inbound
     arrive_by = constraints.arrive_outbound_by if is_outbound else None
 
     if event.kind == DisruptionKind.DELAY:

@@ -20,6 +20,14 @@ class SoldOutError(Exception):
     """A flight lost its last seat between search and booking."""
 
 
+def split_directions(legs: list[Flight], destination: str) -> tuple[list[Flight], list[Flight]]:
+    """Split departure-ordered legs into (outbound, return) around the trip destination."""
+    if not legs or legs[0].origin == destination:
+        return [], legs
+    end = next(i for i, leg in enumerate(legs) if leg.destination == destination)
+    return legs[: end + 1], legs[end + 1 :]
+
+
 def _hold_seats(flights: list[Flight]) -> None:
     for flight in Flight.objects.select_for_update().filter(pk__in=[f.pk for f in flights]):
         if flight.seats_left == 0:

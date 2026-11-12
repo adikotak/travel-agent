@@ -136,3 +136,5 @@ AUTH_USER_MODEL = "travel.User"
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
+
+AGENT_EMAIL = "travel-agent@company.example"
