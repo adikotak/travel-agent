@@ -16,14 +16,12 @@ from travel.models import (
     ItineraryStatus,
     User,
 )
-from travel.presenters import email_cards, initials, thread_rows, trip_panel
+from travel.presenters import email_cards, initials, thread_rows
 from travel.services.disruptions import process_event
 from travel.services.inbox import receive_email
 from travel.services.trips import notify_disruption
 
 DELAY_PRESETS = [45, 180]
-APPROVE_REPLY = "Approved — go ahead and book it."
-REJECT_REPLY = "Rejected. Please look for a cheaper option."
 
 
 def _mailboxes() -> list[dict]:
@@ -64,8 +62,7 @@ def mailbox(request: HttpRequest, username: str, thread_id: int | None = None) -
         **_shell(request, user, "inbox"),
         "rows": rows,
         "selected": selected,
-        "cards": email_cards(selected, user) if selected else [],
-        "trip": trip_panel(selected.booking_intent) if selected else None,
+        "cards": email_cards(selected) if selected else [],
     }
     return render(request, "travel/mailbox.html", context)
 
@@ -111,24 +108,12 @@ def compose(request: HttpRequest, username: str) -> HttpResponse:
     return render(request, "travel/compose.html", context)
 
 
-def _reply_body(request: HttpRequest) -> str:
-    """The reply text: typed, or written for the sender from a card button they clicked."""
-    decision = request.POST.get("decision")
-    if decision:
-        return APPROVE_REPLY if decision == "approve" else REJECT_REPLY
-    picks = sorted(int(value) for key, value in request.POST.items() if key.startswith("choice-"))
-    if picks:
-        numbers = " and ".join(f"option {n}" for n in picks)
-        return f"Please book {numbers}."
-    return request.POST["body"]
-
-
 @require_POST
 def reply(request: HttpRequest, username: str, thread_id: int) -> HttpResponse:
     user = get_object_or_404(User, username=username)
     thread = get_object_or_404(EmailThread, pk=thread_id)
     subject = thread.subject if thread.subject.startswith("Re:") else f"Re: {thread.subject}"
-    receive_email(user.email, subject, _reply_body(request), timezone.now(), thread=thread)
+    receive_email(user.email, subject, request.POST["body"], timezone.now(), thread=thread)
     return redirect("thread", username=username, thread_id=thread_id)
 
 

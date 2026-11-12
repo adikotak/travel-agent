@@ -7,7 +7,6 @@ from django.utils import timezone
 
 from tests.factories import make_flight, make_user
 from travel.models import (
-    ApprovalStatus,
     BookingIntent,
     BookingIntentStatus,
     DisruptionEvent,
@@ -62,7 +61,7 @@ def test_compose_runs_agent_and_shows_thread(client, parses, traveler):
     page = client.get(reverse("thread", args=[traveler.username, thread.pk]))
     assert page.status_code == 200
     assert b"SFO to JFK please" in page.content
-    assert b"Trip booked" in page.content
+    assert b"Itinerary</p>" in page.content
     assert intent.itineraries.get().legs()[0].flight_number.encode() in page.content
     assert f"TRIP-{intent.pk}".encode() in page.content
 
@@ -140,53 +139,23 @@ def request_split_offer(client, parses, traveler):
     return BookingIntent.objects.get()
 
 
-def test_option_card_books_selected_option(client, parses, traveler):
-    """The traveler sees grouped option cards with a book button; choosing the in-policy
-    option sends a plain-English reply through the agent and books it."""
+def test_options_email_reads_like_email_with_cabin(client, parses, traveler):
+    """Offered options render as email tables with a cabin column, split into book-now and
+    needs-approval, with no in-page selection controls: the traveler replies by email."""
+    intent = request_split_offer(client, parses, traveler)
+    page = client.get(reverse("thread", args=[traveler.username, intent.threads.get().pk]))
+    assert b"Can book now (within policy)" in page.content
+    assert b"Needs manager approval" in page.content
+    assert b'<th class="px-3 py-2 font-medium">Cabin</th>' in page.content
+    assert b'type="radio"' not in page.content
+    assert b'value="approve"' not in page.content
+
+
+def test_typed_reply_picks_option(client, parses, traveler):
+    """Replying by email with an option number books it through the agent."""
     intent = request_split_offer(client, parses, traveler)
     thread = intent.threads.get()
-    page = client.get(reverse("thread", args=[traveler.username, thread.pk]))
-    assert b"Book now" in page.content and b"Needs manager approval" in page.content
-    assert b"Book selected" in page.content
-
     parses.append({"kind": "option-selection", "option_numbers": [1]})
-    client.post(reverse("reply", args=[traveler.username, thread.pk]), {"choice-Outbound": "1"})
-    reply = thread.emails.filter(direction=EmailDirection.INBOUND).order_by("-pk").first()
+    client.post(reverse("reply", args=[traveler.username, thread.pk]), {"body": "Option 1 please"})
     intent.refresh_from_db()
-    assert reply.body == "Please book option 1."
-    assert intent.status == BookingIntentStatus.BOOKED
-
-
-def test_option_card_is_read_only_for_others(client, parses, traveler):
-    """Someone else viewing the thread can't book the traveler's options."""
-    intent = request_split_offer(client, parses, traveler)
-    page = client.get(reverse("thread", args=[traveler.manager.username, intent.threads.get().pk]))
-    assert b"Book selected" not in page.content
-
-
-def test_approval_buttons_only_for_approver_and_record_decision(client, parses, traveler):
-    """Approve/Reject show only in the approver's copy of the request; approving books the trip."""
-    intent = request_split_offer(client, parses, traveler)
-    parses.append({"kind": "option-selection", "option_numbers": [2]})
-    client.post(
-        reverse("reply", args=[traveler.username, intent.threads.get().pk]),
-        {"choice-Outbound": "2"},
-    )
-    approval = intent.approvals.get()
-    manager_thread = approval.request_email.thread
-    traveler_view = client.get(reverse("thread", args=[traveler.username, manager_thread.pk]))
-    manager_view = client.get(
-        reverse("thread", args=[traveler.manager.username, manager_thread.pk])
-    )
-    assert b'value="approve"' not in traveler_view.content
-    assert b'value="approve"' in manager_view.content
-
-    parses.append({"kind": "approval-decision", "approved": True})
-    client.post(
-        reverse("reply", args=[traveler.manager.username, manager_thread.pk]),
-        {"decision": "approve"},
-    )
-    approval.refresh_from_db()
-    intent.refresh_from_db()
-    assert approval.status == ApprovalStatus.APPROVED
     assert intent.status == BookingIntentStatus.BOOKED

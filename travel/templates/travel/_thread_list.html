@@ -21,12 +21,6 @@
         </div>
         <p class="truncate text-sm mt-0.5">{{ row.thread.subject }}</p>
         <p class="truncate text-xs text-subtle mt-0.5">{{ row.preview }}</p>
-        {% if row.thread.booking_intent %}
-          <div class="mt-1.5 flex items-center gap-1.5">
-            <span class="pill tone-neutral font-mono">{{ row.thread.booking_intent }}</span>
-            <span class="pill tone-{{ row.status_tone }}">{{ row.status }}</span>
-          </div>
-        {% endif %}
       </a>
     {% empty %}
       <div class="p-8 text-center">

@@ -7,114 +7,108 @@
         <span class="h-8 w-8 shrink-0 rounded-full bg-muted text-ink text-[11px] font-semibold flex items-center justify-center">{{ card.initials }}</span>
       {% endif %}
       <div class="min-w-0">
-        <p class="text-sm font-semibold">{{ card.sender_name }}</p>
+        <p class="text-sm font-semibold">{{ card.sender_name }} <span class="font-normal text-subtle">&lt;{{ card.email.from_address }}&gt;</span></p>
         <p class="text-xs text-subtle truncate">To: {{ card.to_names|join:", " }}</p>
       </div>
     </div>
     <time class="shrink-0 text-xs text-subtle">{{ card.email.sent_at|date:"D, M j · g:i A" }}</time>
   </header>
 
-  <div class="px-5 pb-5">
-    {% if card.is_agent and card.title %}
-      <div class="rounded-lg border border-border border-l-4 accent-{{ card.tone }} bg-canvas/60">
-        <div class="flex items-center gap-2 px-4 pt-3">
-          <span class="pill tone-{{ card.tone }}"><i data-lucide="{{ card.icon }}" style="width:.75rem;height:.75rem"></i>{{ card.title }}</span>
-          {% if card.email.thread.booking_intent %}<span class="pill tone-neutral font-mono">{{ card.email.thread.booking_intent }}</span>{% endif %}
+  <div class="px-5 pb-5 text-sm leading-relaxed">
+    {% if card.is_agent and card.email.card %}
+      <div class="prose-email">{{ card.prose }}</div>
+
+      {% if card.questions %}
+        <ul class="mt-3 list-disc pl-5 space-y-1">
+          {% for question in card.questions %}<li>{{ question }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+
+      {% for group in card.option_groups %}
+        <p class="mt-5 mb-2 font-semibold">{{ group.title }}</p>
+        <div class="overflow-x-auto rounded-md border border-border">
+          <table class="w-full text-left text-[13px]">
+            <thead class="bg-muted/60 text-xs text-subtle">
+              <tr>
+                <th class="px-3 py-2 font-medium">#</th>
+                {% if card.directions|length > 1 %}<th class="px-3 py-2 font-medium">Direction</th>{% endif %}
+                <th class="px-3 py-2 font-medium">Flight</th>
+                <th class="px-3 py-2 font-medium">Cabin</th>
+                <th class="px-3 py-2 font-medium">Departs</th>
+                <th class="px-3 py-2 font-medium">Arrives</th>
+                <th class="px-3 py-2 font-medium">Duration</th>
+                <th class="px-3 py-2 font-medium text-right">Price</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-border">
+              {% for option in group.options %}
+                <tr class="align-top">
+                  <td class="px-3 py-2 font-semibold">{{ option.number }}</td>
+                  {% if card.directions|length > 1 %}<td class="px-3 py-2">{{ option.direction }}</td>{% endif %}
+                  <td class="px-3 py-2 whitespace-nowrap">{{ option.flight_numbers }}</td>
+                  <td class="px-3 py-2 whitespace-nowrap font-medium">{{ option.cabin }}</td>
+                  <td class="px-3 py-2 whitespace-nowrap">{{ option.first.origin }} {{ option.first.departs_at|date:"D M j, H:i" }}{% if option.is_red_eye %} <span class="text-subtle">(red-eye)</span>{% endif %}</td>
+                  <td class="px-3 py-2 whitespace-nowrap">{{ option.last.destination }} {{ option.last.arrives_at|date:"H:i" }}</td>
+                  <td class="px-3 py-2 whitespace-nowrap">{{ option.duration }}<br><span class="text-subtle">{{ option.stops_label }}</span></td>
+                  <td class="px-3 py-2 text-right font-semibold tabular-nums">${{ option.price|floatformat:0 }}</td>
+                </tr>
+                {% if option.preferences or option.reasons %}
+                  <tr>
+                    <td></td>
+                    <td colspan="{% if card.directions|length > 1 %}7{% else %}6{% endif %}" class="px-3 pb-2 pt-0 text-xs">
+                      {% if option.preferences %}<span class="text-emerald-700">Matches: {{ option.preferences|join:", " }}</span>{% endif %}
+                      {% if option.preferences and option.reasons %}<span class="text-subtle"> · </span>{% endif %}
+                      {% if option.reasons %}<span class="text-amber-700">Needs approval: {{ option.reasons|join:"; " }}</span>{% endif %}
+                    </td>
+                  </tr>
+                {% endif %}
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
-        <div class="prose-email px-4 py-3 text-sm">{{ card.prose }}</div>
+      {% endfor %}
+      {% if card.option_groups %}
+        <p class="mt-3 text-subtle">Reply with the option number{% if card.directions|length > 1 %}s (one per direction){% endif %} you'd like.</p>
+      {% endif %}
 
-        {% if card.questions %}
-          <ul class="mx-4 mb-4 space-y-1.5">
-            {% for question in card.questions %}
-              <li class="flex items-start gap-2 text-sm"><i data-lucide="circle-help" class="mt-0.5 shrink-0 text-brand"></i>{{ question }}</li>
-            {% endfor %}
-          </ul>
-        {% endif %}
+      {% if card.itinerary %}
+        <p class="mt-5 mb-2 font-semibold">Itinerary</p>
+        <div class="overflow-x-auto rounded-md border border-border">
+          <table class="w-full text-left text-[13px]">
+            <thead class="bg-muted/60 text-xs text-subtle">
+              <tr>
+                <th class="px-3 py-2 font-medium">Date</th>
+                <th class="px-3 py-2 font-medium">Flight</th>
+                <th class="px-3 py-2 font-medium">Cabin</th>
+                <th class="px-3 py-2 font-medium">Route</th>
+                <th class="px-3 py-2 font-medium text-right">Price</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-border">
+              {% for leg in card.itinerary %}
+                <tr>
+                  <td class="px-3 py-2 whitespace-nowrap">{{ leg.departs_at|date:"D M j" }}</td>
+                  <td class="px-3 py-2">{{ leg.flight_number }}</td>
+                  <td class="px-3 py-2 font-medium">{{ leg.get_cabin_display }}</td>
+                  <td class="px-3 py-2 whitespace-nowrap">{{ leg.origin }} {{ leg.departs_at|date:"H:i" }} → {{ leg.destination }} {{ leg.arrives_at|date:"H:i" }}</td>
+                  <td class="px-3 py-2 text-right tabular-nums">${{ leg.price|floatformat:0 }}</td>
+                </tr>
+              {% endfor %}
+              <tr class="font-semibold">
+                <td class="px-3 py-2" colspan="4">Total</td>
+                <td class="px-3 py-2 text-right tabular-nums">${{ card.itinerary_total|floatformat:0 }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
 
-        {% if card.option_groups %}
-          <form method="post" action="{% url 'reply' current.username card.email.thread.pk %}" data-agent="Sending your choice to the travel agent…" class="px-4 pb-4 space-y-4">
-            {% csrf_token %}
-            {% for group in card.option_groups %}
-              <div>
-                <p class="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide {% if group.tone == 'success' %}text-emerald-700{% else %}text-amber-700{% endif %}">
-                  <i data-lucide="{% if group.tone == 'success' %}badge-check{% else %}shield-alert{% endif %}" style="width:.875rem;height:.875rem"></i>{{ group.title }}
-                </p>
-                <div class="space-y-2">
-                  {% for option in group.options %}
-                    <label class="block rounded-lg border border-border bg-surface px-4 py-3 {% if card.can_choose %}cursor-pointer hover:border-brand/50 has-[:checked]:border-brand has-[:checked]:ring-2 has-[:checked]:ring-brand/20{% endif %}">
-                      <div class="flex items-start gap-3">
-                        {% if card.can_choose %}
-                          <input type="radio" name="choice-{{ option.direction }}" value="{{ option.number }}" class="mt-1 accent-[hsl(var(--brand))]">
-                        {% endif %}
-                        <div class="flex-1 min-w-0">
-                          <div class="flex items-center justify-between gap-3">
-                            <div class="flex items-center gap-2 min-w-0">
-                              <span class="text-xs font-semibold text-subtle">#{{ option.number }}</span>
-                              {% if card.directions|length > 1 %}<span class="pill tone-neutral">{{ option.direction }}</span>{% endif %}
-                              <span class="text-xs text-subtle truncate">{{ option.flight_numbers }} · {{ option.cabin }}</span>
-                            </div>
-                            <span class="text-base font-semibold tabular-nums">${{ option.price|floatformat:0 }}</span>
-                          </div>
-                          <div class="mt-1.5 flex items-center gap-3 text-sm">
-                            <span class="font-medium tabular-nums">{{ option.first.departs_at|date:"H:i" }}</span>
-                            <span class="text-xs text-subtle">{{ option.first.origin }}</span>
-                            <span class="flex-1 flex items-center gap-1.5 text-[11px] text-subtle">
-                              <span class="h-px flex-1 bg-border"></span>{{ option.duration }} · {{ option.stops_label }}<span class="h-px flex-1 bg-border"></span>
-                            </span>
-                            <span class="text-xs text-subtle">{{ option.last.destination }}</span>
-                            <span class="font-medium tabular-nums">{{ option.last.arrives_at|date:"H:i" }}</span>
-                          </div>
-                          <p class="mt-1 text-[11px] text-subtle">{{ option.first.departs_at|date:"l, M j" }}{% if option.is_red_eye %} · red-eye{% endif %}</p>
-                          {% if option.preferences or option.reasons %}
-                            <div class="mt-2 flex flex-wrap gap-1.5">
-                              {% for preference in option.preferences %}<span class="pill tone-success"><i data-lucide="check" style="width:.7rem;height:.7rem"></i>{{ preference }}</span>{% endfor %}
-                              {% for reason in option.reasons %}<span class="pill tone-warning"><i data-lucide="triangle-alert" style="width:.7rem;height:.7rem"></i>{{ reason }}</span>{% endfor %}
-                            </div>
-                          {% endif %}
-                        </div>
-                      </div>
-                    </label>
-                  {% endfor %}
-                </div>
-              </div>
-            {% endfor %}
-            {% if card.can_choose %}
-              <div class="flex items-center justify-between gap-3 pt-1">
-                <p class="text-xs text-subtle">Pick {% if card.directions|length > 1 %}one option per direction{% else %}an option{% endif %}. Options needing approval go to your manager.</p>
-                <button type="submit" class="shrink-0 inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand/90">
-                  <i data-lucide="ticket"></i>Book selected
-                </button>
-              </div>
-            {% endif %}
-          </form>
-        {% endif %}
-
-        {% if card.itinerary %}
-          <div class="mx-4 mb-4 rounded-lg border border-border bg-surface divide-y divide-border">
-            {% for leg in card.itinerary %}
-              <div class="flex items-center gap-4 px-4 py-2.5 text-sm">
-                <i data-lucide="plane-takeoff" class="text-subtle shrink-0"></i>
-                <div class="flex-1 min-w-0">
-                  <p class="font-medium">{{ leg.origin }} {{ leg.departs_at|date:"H:i" }} → {{ leg.destination }} {{ leg.arrives_at|date:"H:i" }}</p>
-                  <p class="text-xs text-subtle">{{ leg.departs_at|date:"D, M j" }} · {{ leg.flight_number }} · {{ leg.get_cabin_display }}</p>
-                </div>
-                <span class="tabular-nums text-sm">${{ leg.price|floatformat:0 }}</span>
-              </div>
-            {% endfor %}
-            <div class="flex justify-between px-4 py-2.5 text-sm font-semibold"><span>Total</span><span class="tabular-nums">${{ card.itinerary_total|floatformat:0 }}</span></div>
-          </div>
-        {% endif %}
-
-        {% if card.can_decide %}
-          <form method="post" action="{% url 'reply' current.username card.email.thread.pk %}" data-agent="Recording your decision…" class="flex gap-2 px-4 pb-4">
-            {% csrf_token %}
-            <button type="submit" name="decision" value="approve" class="flex-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-emerald-600 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"><i data-lucide="check"></i>Approve</button>
-            <button type="submit" name="decision" value="reject" class="flex-1 inline-flex items-center justify-center gap-1.5 rounded-md border border-red-300 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-50"><i data-lucide="x"></i>Reject</button>
-          </form>
-        {% endif %}
+      <div class="mt-5 text-subtle">
+        <p>— Travel Agent</p>
+        {% if card.trip_tag %}<p class="text-xs">Reference: {{ card.trip_tag }} (include this to pick the trip up in a new email)</p>{% endif %}
       </div>
     {% else %}
-      <div class="prose-email text-sm text-ink/85">{{ card.email.body }}</div>
+      <div class="prose-email text-ink/85">{{ card.email.body }}</div>
     {% endif %}
   </div>
 </article>
