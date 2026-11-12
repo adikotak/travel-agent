@@ -150,7 +150,10 @@ class BillableCode(TimestampedModel):
     policy_overrides = models.JSONField(
         default=dict,
         blank=True,
-        help_text="Client contract rules, merged over the company policy rules for trips billed to this code.",
+        help_text=(
+            "Client contract rules, merged over the company policy rules "
+            "for trips billed to this code."
+        ),
     )
 
     def __str__(self) -> str:
@@ -173,7 +176,8 @@ class Flight(TimestampedModel):
     seats_left = models.PositiveIntegerField()
 
     def __str__(self) -> str:
-        return f"{self.flight_number} {self.origin}-{self.destination} {self.departs_at:%Y-%m-%d %H:%M} ({self.cabin})"
+        route = f"{self.origin}-{self.destination}"
+        return f"{self.flight_number} {route} {self.departs_at:%Y-%m-%d %H:%M} ({self.cabin})"
 
     class Meta:
         constraints = [
@@ -188,9 +192,7 @@ class Flight(TimestampedModel):
 class BookingIntent(TimestampedModel):
     """A traveler's trip request, tracked across every email thread that references it."""
 
-    traveler = models.ForeignKey(
-        User, on_delete=models.PROTECT, related_name="booking_intents"
-    )
+    traveler = models.ForeignKey(User, on_delete=models.PROTECT, related_name="booking_intents")
     billable_code = models.ForeignKey(
         BillableCode,
         on_delete=models.PROTECT,
@@ -233,9 +235,7 @@ class EmailThread(TimestampedModel):
 class Email(TimestampedModel):
     """A single message in a thread; outbound messages record the options they offered."""
 
-    thread = models.ForeignKey(
-        EmailThread, on_delete=models.CASCADE, related_name="emails"
-    )
+    thread = models.ForeignKey(EmailThread, on_delete=models.CASCADE, related_name="emails")
     direction = models.CharField(max_length=16, choices=EmailDirection.choices)
     from_address = models.EmailField()
     to_addresses = models.JSONField(default=list)
@@ -261,9 +261,7 @@ class Approval(TimestampedModel):
     booking_intent = models.ForeignKey(
         BookingIntent, on_delete=models.CASCADE, related_name="approvals"
     )
-    approver = models.ForeignKey(
-        User, on_delete=models.PROTECT, related_name="approvals_to_decide"
-    )
+    approver = models.ForeignKey(User, on_delete=models.PROTECT, related_name="approvals_to_decide")
     flights = models.ManyToManyField(Flight, related_name="approvals")
     quoted_price = models.DecimalField(max_digits=10, decimal_places=2)
     reason = models.TextField()
@@ -298,9 +296,7 @@ class Itinerary(TimestampedModel):
     # Segment order is departure order, so no explicit position is stored.
     flights = models.ManyToManyField(Flight, related_name="itineraries")
     total_price = models.DecimalField(max_digits=10, decimal_places=2)
-    policy = models.ForeignKey(
-        TravelPolicy, on_delete=models.PROTECT, related_name="itineraries"
-    )
+    policy = models.ForeignKey(TravelPolicy, on_delete=models.PROTECT, related_name="itineraries")
     status = models.CharField(
         max_length=16,
         choices=ItineraryStatus.choices,
@@ -315,9 +311,7 @@ class Itinerary(TimestampedModel):
 class DisruptionEvent(TimestampedModel):
     """A cancellation or delay reported for a flight."""
 
-    flight = models.ForeignKey(
-        Flight, on_delete=models.PROTECT, related_name="disruptions"
-    )
+    flight = models.ForeignKey(Flight, on_delete=models.PROTECT, related_name="disruptions")
     kind = models.CharField(max_length=16, choices=DisruptionKind.choices)
     delay_minutes = models.PositiveIntegerField(null=True, blank=True)
     occurred_at = models.DateTimeField()

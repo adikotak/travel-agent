@@ -48,6 +48,7 @@ the rule it proves, not the mechanics.
 def test_rejects_past_departure(self):
     """Calls create_trip with yesterday and asserts error."""
 
+
 # RIGHT
 def test_rejects_past_departure(self):
     """A departure date before today is rejected with a validation error,

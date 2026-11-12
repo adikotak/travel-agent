@@ -13,10 +13,13 @@ description: Logging and error-handling conventions. Use when adding logging, ha
 
 ```python
 # RIGHT
-logger.info("itinerary.generated", extra={
-    "itinerary_id": str(itinerary.id),
-    "destination_count": len(itinerary.destinations),
-})
+logger.info(
+    "itinerary.generated",
+    extra={
+        "itinerary_id": str(itinerary.id),
+        "destination_count": len(itinerary.destinations),
+    },
+)
 logger.exception("booking.provider_error", extra={"booking_id": str(booking.id)})
 
 # WRONG

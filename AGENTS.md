@@ -23,9 +23,12 @@ uv sync                                   # install
 uv run python3 manage.py migrate          # apply migrations
 uv run python3 manage.py makemigrations --check --dry-run   # verify models match migrations
 uv run python3 manage.py runserver        # admin at http://localhost:8000/admin
+uv run ruff check . && uv run ruff format --check .   # lint (migrations excluded)
+uv run ruff format .                      # format
+uv run pytest                             # tests (no network; LLM calls are faked)
 ```
 
-Lint, type check, and test commands: add them here when those tools are set up.
+Copy `.env.example` to `.env` and set `OPENAI_API_KEY` to run the agent live.
 
 ## Always-on skills
 
