@@ -1,11 +1,19 @@
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from django.urls import reverse
 from django.utils import timezone
 
 from tests.factories import make_flight, make_user
-from travel.models import BookingIntent, DisruptionEvent, EmailDirection, ItineraryStatus
+from travel.models import (
+    ApprovalStatus,
+    BookingIntent,
+    BookingIntentStatus,
+    DisruptionEvent,
+    EmailDirection,
+    ItineraryStatus,
+)
 
 pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("fixed_prose")]
 
@@ -54,7 +62,8 @@ def test_compose_runs_agent_and_shows_thread(client, parses, traveler):
     page = client.get(reverse("thread", args=[traveler.username, thread.pk]))
     assert page.status_code == 200
     assert b"SFO to JFK please" in page.content
-    assert b"Itinerary:" in page.content
+    assert b"Trip booked" in page.content
+    assert intent.itineraries.get().legs()[0].flight_number.encode() in page.content
     assert f"TRIP-{intent.pk}".encode() in page.content
 
 
@@ -85,3 +94,99 @@ def test_control_panel_lists_active_itineraries(client, parses, traveler):
     assert BookingIntent.objects.get().itineraries.get().status == ItineraryStatus.ACTIVE
     page = client.get(reverse("ops"))
     assert flight.flight_number.encode() in page.content
+
+
+def request_split_offer(client, parses, traveler):
+    """A nonstop-preferring traveler gets an in-policy connection and an over-budget nonstop."""
+    traveler.prefers_nonstop = True
+    traveler.save()
+    departs = timezone.now().replace(hour=7, minute=0) + timedelta(days=20)
+    first = make_flight(
+        origin="SFO",
+        destination="DEN",
+        departs_at=departs,
+        duration_minutes=150,
+        price=Decimal("160"),
+        save=True,
+    )
+    make_flight(
+        origin="DEN",
+        destination="JFK",
+        departs_at=first.arrives_at + timedelta(hours=1),
+        duration_minutes=200,
+        price=Decimal("160"),
+        save=True,
+    )
+    make_flight(
+        origin="SFO",
+        destination="JFK",
+        departs_at=departs + timedelta(hours=1),
+        duration_minutes=330,
+        price=Decimal("520"),
+        save=True,
+    )
+    parses.append(
+        {
+            "kind": "trip-details",
+            "origin": "SFO",
+            "destination": "JFK",
+            "depart_date": departs.date().isoformat(),
+        }
+    )
+    client.post(
+        reverse("compose", args=[traveler.username]),
+        {"subject": "NYC", "body": "SFO to JFK"},
+    )
+    return BookingIntent.objects.get()
+
+
+def test_option_card_books_selected_option(client, parses, traveler):
+    """The traveler sees grouped option cards with a book button; choosing the in-policy
+    option sends a plain-English reply through the agent and books it."""
+    intent = request_split_offer(client, parses, traveler)
+    thread = intent.threads.get()
+    page = client.get(reverse("thread", args=[traveler.username, thread.pk]))
+    assert b"Book now" in page.content and b"Needs manager approval" in page.content
+    assert b"Book selected" in page.content
+
+    parses.append({"kind": "option-selection", "option_numbers": [1]})
+    client.post(reverse("reply", args=[traveler.username, thread.pk]), {"choice-Outbound": "1"})
+    reply = thread.emails.filter(direction=EmailDirection.INBOUND).order_by("-pk").first()
+    intent.refresh_from_db()
+    assert reply.body == "Please book option 1."
+    assert intent.status == BookingIntentStatus.BOOKED
+
+
+def test_option_card_is_read_only_for_others(client, parses, traveler):
+    """Someone else viewing the thread can't book the traveler's options."""
+    intent = request_split_offer(client, parses, traveler)
+    page = client.get(reverse("thread", args=[traveler.manager.username, intent.threads.get().pk]))
+    assert b"Book selected" not in page.content
+
+
+def test_approval_buttons_only_for_approver_and_record_decision(client, parses, traveler):
+    """Approve/Reject show only in the approver's copy of the request; approving books the trip."""
+    intent = request_split_offer(client, parses, traveler)
+    parses.append({"kind": "option-selection", "option_numbers": [2]})
+    client.post(
+        reverse("reply", args=[traveler.username, intent.threads.get().pk]),
+        {"choice-Outbound": "2"},
+    )
+    approval = intent.approvals.get()
+    manager_thread = approval.request_email.thread
+    traveler_view = client.get(reverse("thread", args=[traveler.username, manager_thread.pk]))
+    manager_view = client.get(
+        reverse("thread", args=[traveler.manager.username, manager_thread.pk])
+    )
+    assert b'value="approve"' not in traveler_view.content
+    assert b'value="approve"' in manager_view.content
+
+    parses.append({"kind": "approval-decision", "approved": True})
+    client.post(
+        reverse("reply", args=[traveler.manager.username, manager_thread.pk]),
+        {"decision": "approve"},
+    )
+    approval.refresh_from_db()
+    intent.refresh_from_db()
+    assert approval.status == ApprovalStatus.APPROVED
+    assert intent.status == BookingIntentStatus.BOOKED

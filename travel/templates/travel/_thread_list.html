@@ -1,0 +1,39 @@
+{% load humanize %}
+<section class="w-80 lg:w-96 shrink-0 bg-surface border-r border-border flex flex-col">
+  <div class="px-4 h-12 border-b border-border flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <i data-lucide="inbox" class="text-subtle"></i>
+      <h2 class="text-sm font-semibold">Inbox</h2>
+      <span class="text-xs text-subtle">({{ rows|length }})</span>
+    </div>
+    <a href="{% url 'compose' current.username %}"
+       class="inline-flex items-center gap-1.5 rounded-md bg-brand px-2.5 py-1.5 text-xs font-medium text-white hover:bg-brand/90">
+      <i data-lucide="pen-square" style="width:.875rem;height:.875rem"></i>New request
+    </a>
+  </div>
+  <div class="flex-1 overflow-y-auto divide-y divide-border">
+    {% for row in rows %}
+      <a href="{% url 'thread' current.username row.thread.pk %}"
+         class="block px-4 py-3 transition-colors {% if row.thread == selected %}bg-brand/[.07]{% else %}hover:bg-muted/70{% endif %}">
+        <div class="flex items-center justify-between gap-2">
+          <span class="truncate text-sm {% if row.latest.direction == 'outbound' %}font-semibold{% endif %}">{{ row.sender_name }}</span>
+          <span class="shrink-0 text-[11px] text-subtle">{{ row.latest.sent_at|naturaltime }}</span>
+        </div>
+        <p class="truncate text-sm mt-0.5">{{ row.thread.subject }}</p>
+        <p class="truncate text-xs text-subtle mt-0.5">{{ row.preview }}</p>
+        {% if row.thread.booking_intent %}
+          <div class="mt-1.5 flex items-center gap-1.5">
+            <span class="pill tone-neutral font-mono">{{ row.thread.booking_intent }}</span>
+            <span class="pill tone-{{ row.status_tone }}">{{ row.status }}</span>
+          </div>
+        {% endif %}
+      </a>
+    {% empty %}
+      <div class="p-8 text-center">
+        <i data-lucide="mail-plus" class="mx-auto text-subtle" style="width:2rem;height:2rem"></i>
+        <p class="mt-2 text-sm text-subtle">No email yet.</p>
+        <a href="{% url 'compose' current.username %}" class="mt-1 inline-block text-sm text-brand hover:underline">Request a trip</a>
+      </div>
+    {% endfor %}
+  </div>
+</section>

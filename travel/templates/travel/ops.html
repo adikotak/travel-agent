@@ -1,61 +1,83 @@
 {% extends "travel/base.html" %}
-{% block title %}Disruption control{% endblock %}
+{% block title %}Disruption control · Travel Desk{% endblock %}
 {% block content %}
-<section class="flex-1 p-8 overflow-y-auto space-y-8">
-  <div class="flex items-start justify-between gap-4">
-    <div>
-      <h1 class="text-lg font-semibold">Disruption control</h1>
-      <p class="text-sm text-slate-500">Simulate an airline cancelling or delaying a booked flight. The agent reacts and emails affected travelers.</p>
+<section class="flex-1 min-w-0 overflow-y-auto">
+  <div class="mx-auto max-w-4xl px-6 py-6 space-y-6">
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        <h1 class="text-xl font-semibold tracking-tight">Disruption control</h1>
+        <p class="mt-1 text-sm text-subtle">Play the airline: cancel or delay a booked flight. The agent reacts on its own and emails affected travelers.</p>
+      </div>
+      <form method="post" action="{% url 'reset_demo' %}" data-agent="Resetting the demo…"
+            onsubmit="return confirm('Wipe all emails, trips, and bookings and regenerate flights?')">
+        {% csrf_token %}
+        <button type="submit" class="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-subtle hover:bg-muted">
+          <i data-lucide="rotate-ccw"></i>Reset demo
+        </button>
+      </form>
     </div>
-    <form method="post" action="{% url 'reset_demo' %}"
-          onsubmit="return confirm('Wipe all emails, trips, and bookings and regenerate inventory?')">
-      {% csrf_token %}
-      <button type="submit" class="text-sm border border-red-300 text-red-700 hover:bg-red-50 rounded px-3 py-2">Reset demo</button>
-    </form>
-  </div>
 
-  <div class="space-y-4">
     {% for row in rows %}
-      <div class="bg-white rounded-lg border border-slate-200">
-        <div class="px-4 py-2 border-b border-slate-100 text-sm flex justify-between">
-          <span class="font-medium">{{ row.itinerary.booking_intent }} · {{ row.itinerary.booking_intent.traveler.get_full_name }}</span>
-          <span class="text-slate-500">${{ row.itinerary.total_price|floatformat:0 }}</span>
+      <div class="rounded-lg border border-border bg-surface shadow-sm">
+        <div class="flex items-center justify-between border-b border-border px-4 py-2.5">
+          <div class="flex items-center gap-2 text-sm">
+            <span class="pill tone-neutral font-mono">{{ row.itinerary.booking_intent }}</span>
+            <span class="font-medium">{{ row.itinerary.booking_intent.traveler.get_full_name }}</span>
+          </div>
+          <span class="text-sm tabular-nums text-subtle">${{ row.itinerary.total_price|floatformat:0 }}</span>
         </div>
-        <ul>
+        <ul class="divide-y divide-border">
           {% for leg in row.legs %}
-            <li class="px-4 py-2 flex items-center justify-between gap-4 text-sm border-b border-slate-50 last:border-0">
-              <span>{{ leg.flight_number }} {{ leg.origin }}→{{ leg.destination }} · {{ leg.departs_at|date:"D M j H:i" }}–{{ leg.arrives_at|date:"H:i" }} · {{ leg.get_cabin_display }}</span>
-              <span class="flex gap-2 shrink-0">
+            <li class="flex items-center justify-between gap-4 px-4 py-3">
+              <div class="flex items-center gap-3 min-w-0">
+                <i data-lucide="plane-takeoff" class="text-subtle shrink-0"></i>
+                <div class="min-w-0">
+                  <p class="text-sm font-medium">{{ leg.flight_number }} · {{ leg.origin }} {{ leg.departs_at|date:"H:i" }} → {{ leg.destination }} {{ leg.arrives_at|date:"H:i" }}</p>
+                  <p class="text-xs text-subtle">{{ leg.departs_at|date:"D, M j" }} · {{ leg.get_cabin_display }}</p>
+                </div>
+              </div>
+              <div class="flex shrink-0 gap-2">
                 {% for minutes in delays %}
-                  <form method="post" action="{% url 'disrupt' leg.pk %}">
+                  <form method="post" action="{% url 'disrupt' leg.pk %}" data-agent="Delaying {{ leg.flight_number }}; agent is checking the impact…">
                     {% csrf_token %}
                     <input type="hidden" name="delay_minutes" value="{{ minutes }}">
-                    <button type="submit" class="text-xs border border-amber-300 text-amber-800 hover:bg-amber-50 rounded px-2 py-1">Delay {{ minutes }}m</button>
+                    <button type="submit" class="inline-flex items-center gap-1 rounded-md border border-amber-300 px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50">
+                      <i data-lucide="clock" style="width:.8rem;height:.8rem"></i>Delay {{ minutes }}m
+                    </button>
                   </form>
                 {% endfor %}
-                <form method="post" action="{% url 'disrupt' leg.pk %}">
+                <form method="post" action="{% url 'disrupt' leg.pk %}" data-agent="Cancelling {{ leg.flight_number }}; agent is finding alternatives…">
                   {% csrf_token %}
-                  <button type="submit" class="text-xs border border-red-300 text-red-700 hover:bg-red-50 rounded px-2 py-1">Cancel</button>
+                  <button type="submit" class="inline-flex items-center gap-1 rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50">
+                    <i data-lucide="ban" style="width:.8rem;height:.8rem"></i>Cancel
+                  </button>
                 </form>
-              </span>
+              </div>
             </li>
           {% endfor %}
         </ul>
       </div>
     {% empty %}
-      <p class="text-sm text-slate-500">No booked itineraries yet.</p>
+      <div class="rounded-lg border border-dashed border-border bg-surface p-10 text-center">
+        <i data-lucide="plane" class="mx-auto text-subtle" style="width:2rem;height:2rem"></i>
+        <p class="mt-2 text-sm text-subtle">No booked trips yet. Book one from the inbox, then come back to disrupt it.</p>
+      </div>
     {% endfor %}
-  </div>
 
-  {% if events %}
-  <div>
-    <h2 class="text-sm font-semibold mb-2">Recent disruptions</h2>
-    <ul class="text-sm text-slate-600 space-y-1">
-      {% for event in events %}
-        <li>{{ event.flight.flight_number }} {{ event.get_kind_display }}{% if event.delay_minutes %} {{ event.delay_minutes }}m{% endif %} · {{ event.occurred_at|date:"M j H:i" }}</li>
-      {% endfor %}
-    </ul>
+    {% if events %}
+      <div>
+        <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-subtle">Recent disruptions</p>
+        <ul class="space-y-1.5">
+          {% for event in events %}
+            <li class="flex items-center gap-2 text-sm">
+              <span class="pill {% if event.kind == 'cancellation' %}tone-danger{% else %}tone-warning{% endif %}">{{ event.get_kind_display }}{% if event.delay_minutes %} · {{ event.delay_minutes }}m{% endif %}</span>
+              <span>{{ event.flight.flight_number }} {{ event.flight.origin }}→{{ event.flight.destination }}</span>
+              <span class="text-subtle text-xs">{{ event.occurred_at|date:"M j, g:i A" }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
   </div>
-  {% endif %}
 </section>
 {% endblock %}

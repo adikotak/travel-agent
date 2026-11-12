@@ -1,19 +1,48 @@
 {% extends "travel/base.html" %}
 {% block content %}
-<section class="flex-1 p-8 overflow-y-auto">
-  <form method="post" class="max-w-2xl bg-white rounded-lg border border-slate-200 p-6 space-y-4">
-    {% csrf_token %}
-    <h1 class="text-lg font-semibold">New email</h1>
-    <p class="text-sm text-slate-500">From {{ current.email }} to the travel agent</p>
-    <input name="subject" required placeholder="Subject"
-           class="w-full border border-slate-300 rounded p-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
-    <textarea name="body" rows="10" required
-              placeholder="e.g. I need to fly from SFO to New York on the 24th, back on the 27th. I have a client dinner at 7pm the night I land."
-              class="w-full border border-slate-300 rounded p-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"></textarea>
-    <div class="flex justify-end">
-      <button type="submit" data-busy-label="Agent is working…"
-              class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded px-4 py-2">Send</button>
+{% include "travel/_thread_list.html" %}
+<section class="flex-1 min-w-0 overflow-y-auto">
+  <div class="mx-auto max-w-3xl px-6 py-6">
+    <h1 class="text-xl font-semibold tracking-tight mb-5">New travel request</h1>
+    <form method="post" data-agent="Travel agent is reading your request…" class="rounded-lg border border-border bg-surface shadow-sm">
+      {% csrf_token %}
+      <div class="flex items-center gap-2 border-b border-border px-4 py-2.5 text-sm">
+        <span class="text-subtle w-14">From</span>
+        <span>{{ current.get_full_name }} <span class="text-subtle">&lt;{{ current.email }}&gt;</span></span>
+      </div>
+      <div class="flex items-center gap-2 border-b border-border px-4 py-2.5 text-sm">
+        <span class="text-subtle w-14">To</span>
+        <span class="inline-flex items-center gap-2 rounded-full bg-muted px-2 py-0.5">
+          <span class="h-5 w-5 rounded-full bg-brand text-white flex items-center justify-center"><i data-lucide="plane" style="width:.7rem;height:.7rem"></i></span>
+          Travel Agent <span class="text-subtle">&lt;{{ agent_email }}&gt;</span>
+        </span>
+      </div>
+      <div class="flex items-center gap-2 border-b border-border px-4 py-2.5 text-sm">
+        <span class="text-subtle w-14">Subject</span>
+        <input name="subject" required placeholder="Trip to…" class="flex-1 bg-transparent outline-none placeholder:text-subtle">
+      </div>
+      <textarea name="body" rows="9" required placeholder="Where are you going, when, and anything the agent should know (deadlines, client, cabin)…"
+                class="block w-full resize-none bg-transparent px-4 py-3 text-sm outline-none placeholder:text-subtle"></textarea>
+      <div class="flex items-center justify-between gap-3 border-t border-border px-4 py-2.5">
+        <a href="{% url 'mailbox' current.username %}" class="text-sm text-subtle hover:text-ink">Discard</a>
+        <button type="submit" class="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand/90">
+          <i data-lucide="send"></i>Send
+        </button>
+      </div>
+    </form>
+
+    <div class="mt-6">
+      <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-subtle">Start from an example — or write anything</p>
+      <div class="grid gap-2 sm:grid-cols-3">
+        {% for example in examples %}
+          <button type="button" data-fill='{"subject": "{{ example.subject|escapejs }}", "body": "{{ example.body|escapejs }}"}'
+                  class="text-left rounded-lg border border-border bg-surface px-3 py-2.5 hover:border-brand/50">
+            <span class="block text-sm font-medium">{{ example.label }}</span>
+            <span class="mt-0.5 block text-xs text-subtle line-clamp-2">{{ example.body }}</span>
+          </button>
+        {% endfor %}
+      </div>
     </div>
-  </form>
+  </div>
 </section>
 {% endblock %}

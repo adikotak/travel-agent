@@ -3,46 +3,161 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Travel Agent Inbox{% endblock %}</title>
+  <title>{% block title %}Travel Desk{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"] },
+          colors: {
+            brand: "hsl(var(--brand) / <alpha-value>)",
+            border: "hsl(var(--border) / <alpha-value>)",
+            muted: "hsl(var(--muted) / <alpha-value>)",
+            subtle: "hsl(var(--subtle) / <alpha-value>)",
+            surface: "hsl(var(--surface) / <alpha-value>)",
+            canvas: "hsl(var(--canvas) / <alpha-value>)",
+            ink: "hsl(var(--ink) / <alpha-value>)",
+          },
+        },
+      },
+    };
+  </script>
+  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
   <style>
-    .email-body { white-space: pre-wrap; font-family: ui-sans-serif, system-ui, sans-serif; }
-    form[data-busy] button[type=submit] { opacity: .6; pointer-events: none; }
+    :root {
+      --brand: 199 89% 38%;
+      --border: 220 13% 91%;
+      --muted: 220 14% 96%;
+      --subtle: 220 9% 46%;
+      --surface: 0 0% 100%;
+      --canvas: 220 20% 98%;
+      --ink: 222 22% 16%;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --brand: 199 89% 55%;
+        --border: 220 13% 22%;
+        --muted: 220 13% 16%;
+        --subtle: 220 9% 64%;
+        --surface: 222 18% 11%;
+        --canvas: 222 22% 8%;
+        --ink: 220 14% 92%;
+      }
+    }
+    :root[data-theme="dark"] {
+      --brand: 199 89% 55%;
+      --border: 220 13% 22%;
+      --muted: 220 13% 16%;
+      --subtle: 220 9% 64%;
+      --surface: 222 18% 11%;
+      --canvas: 222 22% 8%;
+      --ink: 220 14% 92%;
+    }
+    body { background: hsl(var(--canvas)); color: hsl(var(--ink)); }
+    .prose-email { white-space: pre-wrap; line-height: 1.65; }
+    .pill { display: inline-flex; align-items: center; gap: .25rem; border-radius: 9999px; border-width: 1px; padding: .125rem .5rem; font-size: .6875rem; font-weight: 500; line-height: 1rem; }
+    .tone-success { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+    .tone-warning { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+    .tone-danger  { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+    .tone-info    { background: hsl(var(--brand) / .08); color: hsl(var(--brand)); border-color: hsl(var(--brand) / .25); }
+    .tone-neutral { background: hsl(var(--muted)); color: hsl(var(--subtle)); border-color: hsl(var(--border)); }
+    .accent-success { border-left-color: #10b981; }
+    .accent-warning { border-left-color: #f59e0b; }
+    .accent-danger  { border-left-color: #ef4444; }
+    .accent-info    { border-left-color: hsl(var(--brand)); }
+    .accent-neutral { border-left-color: hsl(var(--border)); }
+    [data-lucide] { width: 1rem; height: 1rem; stroke-width: 2; }
+    #working { display: none; }
+    body.is-working #working { display: flex; }
   </style>
 </head>
-<body class="bg-slate-100 text-slate-800 h-screen flex flex-col">
-  <header class="bg-white border-b border-slate-200 px-5 h-14 flex items-center justify-between shrink-0">
-    <a href="{% url 'index' %}" class="font-semibold text-slate-900">✈︎ Travel Agent Inbox</a>
-    <nav class="flex items-center gap-4 text-sm">
-      {% if not llm_configured %}
-        <span class="text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-          OPENAI_API_KEY not set — add it to .env
-        </span>
+<body class="font-sans antialiased h-screen flex overflow-hidden">
+  <nav class="w-14 shrink-0 bg-surface border-r border-border flex flex-col items-center py-3 gap-1">
+    <a href="{% url 'index' %}" class="mb-3 h-9 w-9 rounded-lg bg-brand text-white flex items-center justify-center" title="Travel Desk">
+      <i data-lucide="plane"></i>
+    </a>
+    <a href="{% url 'index' %}" title="Inbox"
+       class="h-9 w-9 rounded-md flex items-center justify-center {% if active == 'inbox' %}bg-brand/10 text-brand{% else %}text-subtle hover:bg-muted{% endif %}">
+      <i data-lucide="inbox"></i>
+    </a>
+    <a href="{% url 'ops' %}" title="Disruption control"
+       class="h-9 w-9 rounded-md flex items-center justify-center {% if active == 'ops' %}bg-brand/10 text-brand{% else %}text-subtle hover:bg-muted{% endif %}">
+      <i data-lucide="cloud-lightning"></i>
+    </a>
+    <a href="/admin/" title="Admin" class="h-9 w-9 rounded-md flex items-center justify-center text-subtle hover:bg-muted">
+      <i data-lucide="database"></i>
+    </a>
+  </nav>
+
+  <div class="flex-1 min-w-0 flex flex-col">
+    <header class="h-14 shrink-0 bg-surface border-b border-border px-5 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <span class="font-semibold tracking-tight">Travel Desk</span>
+        <span class="pill tone-neutral">Interactive demo</span>
+        {% if not llm_configured %}
+          <span class="pill tone-warning"><i data-lucide="key-round" style="width:.75rem;height:.75rem"></i>Set OPENAI_API_KEY in .env</span>
+        {% endif %}
+      </div>
+      {% if mailboxes %}
+      <details class="relative">
+        <summary class="list-none cursor-pointer flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted">
+          <span class="text-xs text-subtle hidden sm:inline">Viewing as</span>
+          {% if current %}
+            <span class="h-7 w-7 rounded-full bg-brand/15 text-brand text-[11px] font-semibold flex items-center justify-center">{{ current_initials }}</span>
+            <span class="text-left leading-tight">
+              <span class="block text-sm font-medium">{{ current.get_full_name }}</span>
+              <span class="block text-[11px] text-subtle">{{ current_title }}</span>
+            </span>
+          {% else %}
+            <span class="text-sm font-medium">Choose a mailbox</span>
+          {% endif %}
+          <i data-lucide="chevrons-up-down" class="text-subtle"></i>
+        </summary>
+        <div class="absolute right-0 mt-1 w-72 z-20 rounded-lg border border-border bg-surface shadow-lg py-1">
+          {% for box in mailboxes %}
+            <a href="{% url 'mailbox' box.user.username %}"
+               class="flex items-center gap-3 px-3 py-2 hover:bg-muted {% if box.user == current %}bg-muted{% endif %}">
+              <span class="h-7 w-7 shrink-0 rounded-full bg-brand/15 text-brand text-[11px] font-semibold flex items-center justify-center">{{ box.initials }}</span>
+              <span class="min-w-0 leading-tight">
+                <span class="block text-sm font-medium">{{ box.user.get_full_name }}</span>
+                <span class="block text-[11px] text-subtle truncate">{{ box.title }} · {{ box.user.get_seniority_display }}</span>
+              </span>
+              {% if box.user == current %}<i data-lucide="check" class="ml-auto text-brand"></i>{% endif %}
+            </a>
+          {% endfor %}
+        </div>
+      </details>
       {% endif %}
-      <a href="{% url 'ops' %}" class="text-slate-600 hover:text-slate-900">Disruption control</a>
-      <a href="/admin/" class="text-slate-600 hover:text-slate-900">Admin</a>
-    </nav>
-  </header>
-  <div class="flex flex-1 min-h-0">
-    <aside class="w-56 bg-white border-r border-slate-200 overflow-y-auto shrink-0">
-      <p class="px-4 pt-4 pb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Mailboxes</p>
-      {% for box in mailboxes %}
-        <a href="{% url 'mailbox' box.user.username %}"
-           class="block px-4 py-2 text-sm {% if box.user == current %}bg-indigo-50 text-indigo-800{% else %}hover:bg-slate-50{% endif %}">
-          <span class="font-medium">{{ box.user.get_full_name }}</span>
-          <span class="block text-xs text-slate-500">{{ box.title }}</span>
-        </a>
-      {% endfor %}
-    </aside>
-    <main class="flex-1 min-w-0 flex">{% block content %}{% endblock %}</main>
+    </header>
+    <main class="flex-1 min-h-0 flex">{% block content %}{% endblock %}</main>
   </div>
+
+  <div id="working" class="fixed inset-0 z-50 items-center justify-center bg-black/20 backdrop-blur-[1px]">
+    <div class="rounded-xl bg-surface border border-border shadow-xl px-5 py-4 flex items-center gap-3">
+      <svg class="animate-spin h-5 w-5 text-brand" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity=".2"/><path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+      <div>
+        <p class="text-sm font-medium" id="working-label">Travel agent is working…</p>
+        <p class="text-xs text-subtle">Reading the email, checking policy and flights</p>
+      </div>
+    </div>
+  </div>
+
   <script>
-    // Agent replies are generated synchronously; show that work is in progress.
-    document.querySelectorAll("form").forEach((form) => {
+    lucide.createIcons();
+    document.querySelectorAll("form[data-agent]").forEach((form) => {
       form.addEventListener("submit", () => {
-        form.dataset.busy = "true";
-        const button = form.querySelector("button[type=submit]");
-        if (button) button.textContent = button.dataset.busyLabel || "Working…";
+        if (form.dataset.agent) document.getElementById("working-label").textContent = form.dataset.agent;
+        document.body.classList.add("is-working");
+      });
+    });
+    document.querySelectorAll("[data-fill]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const data = JSON.parse(button.dataset.fill);
+        document.querySelector("[name=subject]").value = data.subject;
+        document.querySelector("[name=body]").value = data.body;
       });
     });
   </script>
