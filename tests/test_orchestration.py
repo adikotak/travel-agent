@@ -1,14 +1,9 @@
-from collections import deque
 from datetime import timedelta
 from decimal import Decimal
 
 import pytest
-from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart
-from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from tests.factories import at, make_flight, make_user
-from travel.agent.compose import compose_agent
-from travel.agent.parse import parse_agent
 from travel.models import (
     ApprovalStatus,
     BookingIntent,
@@ -27,27 +22,7 @@ from travel.services.trips import notify_disruption
 NOW = at(0, 12)
 
 
-@pytest.fixture(autouse=True)
-def fixed_prose():
-    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-        return ModelResponse(parts=[TextPart("Message.")])
-
-    with compose_agent.override(model=FunctionModel(respond)):
-        yield
-
-
-@pytest.fixture
-def parses():
-    """Queue the intents the parser will return, one per inbound email, in order."""
-    queue: deque[dict] = deque()
-
-    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-        return ModelResponse(
-            parts=[ToolCallPart(info.output_tools[0].name, {"intent": queue.popleft()})]
-        )
-
-    with parse_agent.override(model=FunctionModel(respond)):
-        yield queue
+pytestmark = pytest.mark.usefixtures("fixed_prose")
 
 
 @pytest.fixture

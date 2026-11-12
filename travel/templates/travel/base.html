@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Travel Agent Inbox{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .email-body { white-space: pre-wrap; font-family: ui-sans-serif, system-ui, sans-serif; }
+    form[data-busy] button[type=submit] { opacity: .6; pointer-events: none; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 h-screen flex flex-col">
+  <header class="bg-white border-b border-slate-200 px-5 h-14 flex items-center justify-between shrink-0">
+    <a href="{% url 'index' %}" class="font-semibold text-slate-900">✈︎ Travel Agent Inbox</a>
+    <nav class="flex items-center gap-4 text-sm">
+      {% if not llm_configured %}
+        <span class="text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+          OPENAI_API_KEY not set — add it to .env
+        </span>
+      {% endif %}
+      <a href="{% url 'ops' %}" class="text-slate-600 hover:text-slate-900">Disruption control</a>
+      <a href="/admin/" class="text-slate-600 hover:text-slate-900">Admin</a>
+    </nav>
+  </header>
+  <div class="flex flex-1 min-h-0">
+    <aside class="w-56 bg-white border-r border-slate-200 overflow-y-auto shrink-0">
+      <p class="px-4 pt-4 pb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Mailboxes</p>
+      {% for box in mailboxes %}
+        <a href="{% url 'mailbox' box.user.username %}"
+           class="block px-4 py-2 text-sm {% if box.user == current %}bg-indigo-50 text-indigo-800{% else %}hover:bg-slate-50{% endif %}">
+          <span class="font-medium">{{ box.user.get_full_name }}</span>
+          <span class="block text-xs text-slate-500">{{ box.title }}</span>
+        </a>
+      {% endfor %}
+    </aside>
+    <main class="flex-1 min-w-0 flex">{% block content %}{% endblock %}</main>
+  </div>
+  <script>
+    // Agent replies are generated synchronously; show that work is in progress.
+    document.querySelectorAll("form").forEach((form) => {
+      form.addEventListener("submit", () => {
+        form.dataset.busy = "true";
+        const button = form.querySelector("button[type=submit]");
+        if (button) button.textContent = button.dataset.busyLabel || "Working…";
+      });
+    });
+  </script>
+</body>
+</html>

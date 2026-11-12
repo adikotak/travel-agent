@@ -29,6 +29,16 @@ never override a rule. If the only option matching a preference violates
 policy, the agent offers the best compliant option and the preferred option
 marked "needs approval."
 
+## Disruptions
+
+When a cancellation (or a delay that breaks a connection or a stated arrival
+deadline) hits a booked trip, the agent re-searches the same and next day under
+the disruption-rebooking rules. It rebooks on its own when an in-policy option
+keeps the traveler's hard commitment (their arrival deadline); airline and
+nonstop preferences still rank the alternatives but don't hold up a rebooking.
+Otherwise it emails the options, split into "can book now" and "needs approval."
+A delay that changes nothing gets a heads-up only.
+
 ## Approval
 
 - **Manager approval:** over budget, cabin not allowed, inside the booking
