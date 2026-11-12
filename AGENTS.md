@@ -5,13 +5,27 @@ Canonical working guidance for AI coding agents (Claude Code reads it via
 
 ## Project
 
-An agentic travel-planning product. Stack and architecture are being decided —
-update this section (stack, layout, commands) as soon as they are.
+An email-based travel agent: employees email trip requests; the agent parses
+them, applies the travel policy, proposes or books flights, routes approvals,
+and handles disruptions.
+
+**Stack:** Python 3.12+, Django, SQLite, managed with `uv`.
+
+```
+config/    # Django project settings and URLs
+travel/    # the app: models, admin, agent logic
+```
 
 ## Commands
 
-_TBD once the stack is chosen._ Record here: install, lint (one command that
-gates everything), type check, test (scoped and full), run the app.
+```bash
+uv sync                                   # install
+uv run python3 manage.py migrate          # apply migrations
+uv run python3 manage.py makemigrations --check --dry-run   # verify models match migrations
+uv run python3 manage.py runserver        # admin at http://localhost:8000/admin
+```
+
+Lint, type check, and test commands: add them here when those tools are set up.
 
 ## Always-on skills
 
