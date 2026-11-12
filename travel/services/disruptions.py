@@ -15,11 +15,15 @@ from travel.models import (
     ItineraryStatus,
 )
 from travel.policy import DisruptedBooking, approval_rules, effective_rules, evaluate_options
-from travel.ranking import rank
+from travel.ranking import Preference, rank
 from travel.schemas import TripConstraints
 from travel.search import MIN_CONNECTION, TravelOption, find_options
 from travel.services.actions import log_action
 from travel.services.booking import rebook_itinerary, split_directions
+
+# Mid-disruption, only a stated arrival deadline can stop an automatic rebooking;
+# airline and nonstop preferences still rank the alternatives.
+HARD_COMMITMENTS = frozenset({Preference.ARRIVES_ON_TIME})
 
 
 class DisruptionResponse(models.TextChoices):
@@ -98,6 +102,7 @@ def _respond(itinerary: Itinerary, event: DisruptionEvent, now: datetime) -> Dis
     decision = decide_direction(
         rank(evaluations, intent.traveler, arrive_by=arrive_by),
         approval_rules(itinerary.policy),
+        blocking=HARD_COMMITMENTS,
     )
     if decision.kind == DecisionKind.AUTO_BOOK:
         summary = f"{reason}; rebooked automatically: {decision.reasoning}"

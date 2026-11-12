@@ -162,3 +162,22 @@ def test_trip_decision_is_most_cautious_direction(kinds, expected):
     """A round trip is only auto-booked when both directions would be."""
     decisions = [DirectionDecision(kind=kind, chosen=None, reasoning="") for kind in kinds]
     assert combine(decisions) == expected
+
+
+def test_only_blocking_preferences_stop_auto_book():
+    """With only the arrival deadline blocking, a compliant option that misses just the
+    preferred airline is booked rather than proposed against an over-limit one that has it."""
+    other_airline = nonstop(airline="AA", price=Decimal("380"))
+    preferred_over_limit = nonstop(airline="UA", price=Decimal("520"))
+    ranked = rank(
+        [
+            evaluated(other_airline),
+            evaluated(preferred_over_limit, Violation.OVER_BUDGET),
+        ],
+        make_user(preferred_airlines=["UA"]),
+    )
+    decision = decide_direction(
+        ranked, APPROVAL_RULES, blocking=frozenset({Preference.ARRIVES_ON_TIME})
+    )
+    assert decision.kind == DecisionKind.AUTO_BOOK
+    assert decision.chosen.evaluation.option is other_airline

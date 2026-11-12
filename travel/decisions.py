@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from django.db import models
 
 from travel.policy import ApprovalRules, is_rejected
-from travel.ranking import RankedOption
+from travel.ranking import Preference, RankedOption
 
 MAX_COMPLIANT_SHOWN = 3
 MAX_APPROVAL_SHOWN = 2
@@ -29,13 +29,25 @@ class DirectionDecision:
     needs_approval: list[RankedOption] = field(default_factory=list)
 
 
-def decide_direction(ranked: list[RankedOption], rules: ApprovalRules) -> DirectionDecision:
+def _misses(ranked: RankedOption, blocking: frozenset[Preference] | None) -> set[Preference]:
+    misses = set(ranked.misses)
+    return misses if blocking is None else misses & blocking
+
+
+def decide_direction(
+    ranked: list[RankedOption],
+    rules: ApprovalRules,
+    blocking: frozenset[Preference] | None = None,
+) -> DirectionDecision:
     """Decide one direction from preference-ranked options.
 
     Auto-book only when the best compliant option fits the traveler's preferences
     as well as the best option overall; if a preference can only be met by an
     option needing approval, propose both. If nothing is compliant, the
     best-fitting approvable option goes to the manager.
+
+    `blocking` limits which preferences can stop an auto-book (None means all);
+    the rest still order the options.
     """
     candidates = [r for r in ranked if not is_rejected(r.evaluation, rules)]
     can_book_now = [r for r in candidates if r.evaluation.is_compliant]
@@ -58,14 +70,14 @@ def decide_direction(ranked: list[RankedOption], rules: ApprovalRules) -> Direct
             **shown,
         )
     best_compliant = can_book_now[0]
-    if best_compliant.miss_vector == best.miss_vector:
+    if _misses(best_compliant, blocking) <= _misses(best, blocking):
         return DirectionDecision(
             kind=DecisionKind.AUTO_BOOK,
             chosen=best_compliant,
             reasoning="within policy and fits stated preferences as well as any option",
             **shown,
         )
-    unmet = [p.label for p in best_compliant.misses if p not in best.misses]
+    unmet = [p.label for p in _misses(best_compliant, blocking) - _misses(best, blocking)]
     return DirectionDecision(
         kind=DecisionKind.PROPOSE,
         chosen=best_compliant,
