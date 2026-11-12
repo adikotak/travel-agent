@@ -264,6 +264,12 @@ class Email(TimestampedModel):
         blank=True,
         help_text="Numbered options shown in an outbound email: flight IDs and quoted price.",
     )
+    card = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Structured content of an agent email (purpose, prose, questions, itinerary) "
+        "for rich rendering in the inbox.",
+    )
 
     def __str__(self) -> str:
         return f"{self.direction} {self.from_address}: {self.subject}"

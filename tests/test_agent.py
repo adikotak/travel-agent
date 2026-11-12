@@ -9,7 +9,8 @@ from travel.agent.compose import (
     ReplyFacts,
     ReplyPurpose,
     compose_agent,
-    compose_reply,
+    render_body,
+    write_prose,
 )
 from travel.agent.parse import (
     OptionSelection,
@@ -86,7 +87,7 @@ class TestCompose:
             ],
         )
         with compose_agent.override(model=FunctionModel(respond)):
-            body = compose_reply(facts)
+            body = render_body(write_prose(facts), facts)
         can_book, needs_approval = body.split("Needs manager approval:")
         assert "1. [Outbound] UA 101 SFO→ORD→JFK — $320" in can_book
         assert "2. [Outbound] UA 202 SFO→JFK nonstop — $520" in needs_approval

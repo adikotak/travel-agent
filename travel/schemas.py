@@ -45,3 +45,4 @@ class OfferedOption(BaseModel):
     price: Decimal
     can_book_now: bool
     reasons: list[str] = Field(default_factory=list)
+    preferences: list[str] = Field(default_factory=list)

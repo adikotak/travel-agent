@@ -115,7 +115,7 @@ def render_body(prose: str, facts: ReplyFacts) -> str:
     return "\n\n".join(parts)
 
 
-def compose_reply(facts: ReplyFacts) -> str:
-    """Write the email body for these facts."""
+def write_prose(facts: ReplyFacts) -> str:
+    """The model-written message for these facts; structured parts are rendered separately."""
     result = compose_agent.run_sync("Write the email message.", deps=facts, model=chat_model())
-    return render_body(result.output, facts)
+    return result.output.strip()

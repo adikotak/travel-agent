@@ -40,8 +40,8 @@ from travel.services.approvals import ApprovalError, record_decision, request_ap
 from travel.services.booking import book_itinerary, rebook_itinerary, split_directions
 from travel.services.disruptions import DisruptionOutcome, DisruptionResponse
 from travel.services.replies import (
-    describe_leg,
     display_name,
+    itinerary_lines,
     offer,
     option_facts,
     send_email,
@@ -106,8 +106,7 @@ def _reply(
     points: list[str] | None = None,
     questions: list[str] | None = None,
     offered: list[OfferedOption] | None = None,
-    plans: list[DirectionPlan] | None = None,
-    itinerary: list[str] | None = None,
+    itinerary: list[Flight] | None = None,
     thread: EmailThread | None = None,
 ) -> Email:
     thread = thread or email.thread
@@ -117,12 +116,10 @@ def _reply(
         trip_tag=trip_tag(thread.booking_intent),
         points=points or [],
         questions=questions or [],
-        options=option_facts(offered, [r for p in plans for r in p.ranked_shown])
-        if offered and plans
-        else [],
-        itinerary=itinerary or [],
+        options=option_facts(offered or []),
+        itinerary=itinerary_lines(itinerary or []),
     )
-    return send_email(thread, recipient, facts, now, offered)
+    return send_email(thread, recipient, facts, now, offered, itinerary)
 
 
 def _pending_approval(intent: BookingIntent | None) -> Approval | None:
@@ -298,7 +295,7 @@ def _act_on_plans(
             ReplyPurpose.BOOKED,
             now,
             points=[f"booked automatically because {reasoning}"],
-            itinerary=[describe_leg(leg) for leg in itinerary.legs()],
+            itinerary=itinerary.legs(),
         )
         return
     if kind == DecisionKind.REQUEST_APPROVAL:
@@ -315,7 +312,6 @@ def _act_on_plans(
         now,
         points=[reasoning],
         offered=offered,
-        plans=plans,
     )
 
 
@@ -339,7 +335,7 @@ def _escalate(
         now,
         points=[f"{display_name(traveler)} needs approval because: {'; '.join(reasons)}"],
         questions=["Do you approve this booking?"],
-        itinerary=[describe_leg(f) for f in flights] + [f"Total: ${approval.quoted_price:,.0f}"],
+        itinerary=flights,
         thread=manager_thread,
     )
     approval.request_email = request_email
@@ -352,7 +348,7 @@ def _escalate(
         points=[
             f"sent to {display_name(approval.approver)} for approval because: {'; '.join(reasons)}"
         ],
-        itinerary=[describe_leg(f) for f in flights],
+        itinerary=flights,
         thread=_traveler_thread(intent),
     )
 
@@ -427,7 +423,7 @@ def _handle_selection(
             ReplyPurpose.BOOKED,
             now,
             points=["booked the options you picked; they're within policy"],
-            itinerary=[describe_leg(leg) for leg in itinerary.legs()],
+            itinerary=itinerary.legs(),
         )
         return
     reasons = [r for o in picked for r in o.reasons]
@@ -476,7 +472,7 @@ def _handle_approval_decision(
     itinerary = book_for_intent(
         intent, flights, _active_policy(), now, f"approved by {sender.email}"
     )
-    legs = [describe_leg(leg) for leg in itinerary.legs()]
+    legs = itinerary.legs()
     _reply(email, sender, ReplyPurpose.BOOKED, now, points=["approved and booked"], itinerary=legs)
     _reply(
         email,
@@ -524,7 +520,7 @@ def notify_disruption(outcome: DisruptionOutcome, now: datetime) -> Email:
             ReplyPurpose.DISRUPTION_REBOOKED,
             now,
             points=[outcome.summary],
-            itinerary=[describe_leg(leg) for leg in outcome.rebooked_itinerary.legs()],
+            itinerary=outcome.rebooked_itinerary.legs(),
         )
     decision = outcome.decision
     plan = DirectionPlan("Rebooking", decision, decision.can_book_now + decision.needs_approval)
@@ -535,5 +531,4 @@ def notify_disruption(outcome: DisruptionOutcome, now: datetime) -> Email:
         now,
         points=[outcome.summary],
         offered=offer(plan.direction, plan.ranked_shown, start=1),
-        plans=[plan],
     )

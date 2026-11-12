@@ -2,7 +2,7 @@ from datetime import datetime
 
 from django.conf import settings
 
-from travel.agent.compose import OptionFact, ReplyFacts, compose_reply
+from travel.agent.compose import OptionFact, ReplyFacts, render_body, write_prose
 from travel.models import (
     ActionKind,
     BookingIntent,
@@ -58,25 +58,32 @@ def offer(direction: str, ranked: list[RankedOption], start: int) -> list[Offere
             price=r.evaluation.option.price,
             can_book_now=r.evaluation.is_compliant,
             reasons=r.evaluation.reasons,
+            preferences=[p.label for p in r.matches],
         )
         for i, r in enumerate(ranked)
     ]
 
 
-def option_facts(offered: list[OfferedOption], ranked: list[RankedOption]) -> list[OptionFact]:
-    """Pair offered options with their ranking to show policy and preference notes."""
+def option_facts(offered: list[OfferedOption]) -> list[OptionFact]:
     return [
         OptionFact(
             number=o.number,
             direction=o.direction,
-            flights=describe_option(r.evaluation.option),
+            flights=o.label,
             price=o.price,
             can_book_now=o.can_book_now,
             policy_notes=o.reasons,
-            preference_notes=[p.label for p in r.matches],
+            preference_notes=o.preferences,
         )
-        for o, r in zip(offered, ranked, strict=True)
+        for o in offered
     ]
+
+
+def itinerary_lines(flights: list[Flight]) -> list[str]:
+    if not flights:
+        return []
+    total = sum(f.price for f in flights)
+    return [describe_leg(f) for f in flights] + [f"Total: ${total:,.0f}"]
 
 
 def send_email(
@@ -85,17 +92,29 @@ def send_email(
     facts: ReplyFacts,
     sent_at: datetime,
     offered: list[OfferedOption] | None = None,
+    itinerary: list[Flight] | None = None,
 ) -> Email:
-    """Compose and store an outbound email from the agent on `thread`."""
+    """Compose and store an outbound email from the agent on `thread`.
+
+    The plain-text body is what a real mail client would show; `card` keeps the
+    same content structured so the inbox can render it with actions.
+    """
+    prose = write_prose(facts)
     email = Email.objects.create(
         thread=thread,
         direction=EmailDirection.OUTBOUND,
         from_address=settings.AGENT_EMAIL,
         to_addresses=[recipient.email],
         subject=thread.subject if thread.subject.startswith("Re:") else f"Re: {thread.subject}",
-        body=compose_reply(facts),
+        body=render_body(prose, facts),
         sent_at=sent_at,
         options=[o.model_dump(mode="json") for o in offered or []],
+        card={
+            "purpose": facts.purpose,
+            "prose": prose,
+            "questions": facts.questions,
+            "itinerary_flight_ids": [f.pk for f in itinerary or []],
+        },
     )
     log_action(
         thread.booking_intent,
