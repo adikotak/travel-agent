@@ -54,3 +54,8 @@ class OfferedOption(BaseModel):
     can_book_now: bool
     reasons: list[str] = Field(default_factory=list)
     preferences: list[str] = Field(default_factory=list)
+    kept: bool = Field(
+        default=False,
+        description="The traveler's current selection for a direction they didn't change; "
+        "counts as already picked.",
+    )

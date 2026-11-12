@@ -179,8 +179,8 @@ class TestChanges:
         booked_outbound = flights_of(outbound)
         send("priya", "actually, can you move my flight back up one day?", thread)
         reoffered = offered(thread)
-        assert {o.direction for o in reoffered} == {"Return"}, describe(thread)
-        new_return = next(o for o in reoffered if o.can_book_now)
+        assert {o.direction for o in reoffered if not o.kept} == {"Return"}, describe(thread)
+        new_return = next(o for o in reoffered if o.can_book_now and not o.kept)
         send("priya", f"book me on {flights_of(new_return)[0].flight_number}", thread)
         itinerary = intent_for(thread).itineraries.get(status=ItineraryStatus.ACTIVE)
         legs = itinerary.legs()
@@ -248,3 +248,38 @@ class TestApprovalsAndContracts:
         assert intent_for(new_thread) == intent, describe(new_thread)
         intent.refresh_from_db()
         assert intent.constraints["return_date"] == day(18).isoformat(), describe(new_thread)
+
+
+class TestChangesWhileAwaitingApproval:
+    def test_move_return_while_outbound_awaits_approval(self):
+        """Priya picks the over-budget United nonstop (UA1) and a return, so it goes to Morgan;
+        then she asks to move the return a day earlier. Only returns are re-offered, the UA1
+        selection is kept, and picking a new return sends one fresh request."""
+        thread = round_trip_request()
+        options = offered(thread)
+        ua1 = next(
+            o
+            for o in options
+            if o.direction == "Outbound" and flights_of(o)[0].flight_number == "UA1"
+        )
+        inbound = next(o for o in options if o.direction == "Return" and o.can_book_now)
+        send("priya", f"Option {ua1.number} and option {inbound.number}", thread)
+        intent = intent_for(thread)
+        first_request = intent.approvals.get()
+
+        send(
+            "priya",
+            "actually let's move the return flight earlier by a day, what are the options",
+            thread,
+        )
+        reoffered = offered(thread)
+        assert {o.direction for o in reoffered if not o.kept} == {"Return"}, describe(thread)
+        assert [o.flight_ids for o in reoffered if o.kept] == [ua1.flight_ids], describe(thread)
+
+        new_return = next(o for o in reoffered if not o.kept and o.can_book_now)
+        send("priya", f"book {flights_of(new_return)[0].flight_number}", thread)
+        first_request.refresh_from_db()
+        assert first_request.status == ApprovalStatus.WITHDRAWN, describe(thread)
+        pending = intent.approvals.get(status=ApprovalStatus.PENDING)
+        assert {f.flight_number for f in pending.flights.all()} >= {"UA1"}, describe(thread)
+        assert pending.flights.order_by("departs_at").last().departs_at.date() == day(16)

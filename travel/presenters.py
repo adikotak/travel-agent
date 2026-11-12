@@ -42,6 +42,7 @@ class OptionCard:
     can_book_now: bool
     reasons: list[str]
     preferences: list[str]
+    kept: bool = False
 
     @property
     def first(self) -> Flight:
@@ -156,13 +157,16 @@ def _option_groups(email: Email) -> tuple[list[OptionGroup], list[str]]:
             can_book_now=o.can_book_now,
             reasons=o.reasons,
             preferences=o.preferences,
+            kept=o.kept,
         )
         for o in offered
     ]
     directions = list(dict.fromkeys(card.direction for card in cards))
+    fresh = [c for c in cards if not c.kept]
     groups = [
-        OptionGroup("Can book now (within policy)", [c for c in cards if c.can_book_now]),
-        OptionGroup("Needs manager approval", [c for c in cards if not c.can_book_now]),
+        OptionGroup("Keeping from your current selection", [c for c in cards if c.kept]),
+        OptionGroup("Can book now (within policy)", [c for c in fresh if c.can_book_now]),
+        OptionGroup("Needs manager approval", [c for c in fresh if not c.can_book_now]),
     ]
     return [g for g in groups if g.options], directions
 

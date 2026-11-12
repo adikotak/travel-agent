@@ -328,7 +328,8 @@ def test_changing_return_on_booked_trip_reoffers_only_return(parses, traveler):
     )
     send(traveler, "can you move my flight back up one day?", thread=thread)
     offered = [OfferedOption.model_validate(o) for o in last_outbound(thread).options]
-    assert {o.direction for o in offered} == {"Return"}
+    assert {o.direction for o in offered if not o.kept} == {"Return"}
+    assert [o.flight_ids for o in offered if o.kept] == [[outbound.pk]]
 
     pick(parses, traveler, thread, new_return)
     intent = BookingIntent.objects.get()
@@ -385,3 +386,44 @@ def test_deadline_without_departure_date_infers_it(
     intent = BookingIntent.objects.get()
     assert intent.constraints["depart_date"] == at(departs_days_out, 0).date().isoformat()
     assert "What date do you need to leave?" not in last_outbound(thread).body
+
+
+@pytest.mark.django_db
+def test_changing_return_while_awaiting_approval_keeps_outbound(parses, traveler, manager):
+    """With an over-budget outbound awaiting approval, moving the return re-offers only returns;
+    the new pick is combined with the kept outbound, the stale request is withdrawn (with a note
+    to the manager), and a fresh request covers the new combination."""
+    over_budget = make_flight(
+        origin="SFO", destination="JFK", days_out=20, price=Decimal("520"), save=True
+    )
+    old_return = make_flight(origin="JFK", destination="SFO", days_out=23, save=True)
+    new_return = make_flight(origin="JFK", destination="SFO", days_out=22, save=True)
+    parses.append(trip(20, return_date=(NOW + timedelta(days=23)).date().isoformat()))
+    thread = send(traveler, "SFO to JFK and back")
+    pick(parses, traveler, thread, over_budget, old_return)
+    first_request = BookingIntent.objects.get().approvals.get()
+
+    parses.append(
+        {"kind": "trip-details", "return_date": (NOW + timedelta(days=22)).date().isoformat()}
+    )
+    send(traveler, "actually let's move the return earlier by a day, what are the options", thread)
+    offered = [OfferedOption.model_validate(o) for o in last_outbound(thread).options]
+    assert {o.direction for o in offered if not o.kept} == {"Return"}
+    assert [o.flight_ids for o in offered if o.kept] == [[over_budget.pk]]
+
+    pick(parses, traveler, thread, new_return)
+    first_request.refresh_from_db()
+    intent = BookingIntent.objects.get()
+    second_request = intent.approvals.get(status=ApprovalStatus.PENDING)
+    assert first_request.status == ApprovalStatus.WITHDRAWN
+    manager_thread_replies = first_request.request_email.thread.emails.filter(
+        direction=EmailDirection.OUTBOUND
+    )
+    assert manager_thread_replies.count() == 2  # the request, then the withdrawal note
+    assert set(second_request.flights.all()) == {over_budget, new_return}
+
+    # The manager approving in the stale thread doesn't approve the new request.
+    parses.append({"kind": "approval-decision", "approved": True})
+    send(manager, "Approved", thread=first_request.request_email.thread)
+    second_request.refresh_from_db()
+    assert second_request.status == ApprovalStatus.PENDING

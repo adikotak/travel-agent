@@ -61,6 +61,7 @@ class ApprovalStatus(models.TextChoices):
     PENDING = "pending", "Pending"
     APPROVED = "approved", "Approved"
     REJECTED = "rejected", "Rejected"
+    WITHDRAWN = "withdrawn", "Withdrawn"
 
 
 class ItineraryStatus(models.TextChoices):

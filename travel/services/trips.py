@@ -33,15 +33,16 @@ from travel.models import (
     TravelPolicy,
     User,
 )
-from travel.policy import approval_rules, effective_rules, evaluate_options
+from travel.policy import PolicyRules, approval_rules, effective_rules, evaluate_options
 from travel.ranking import RankedOption, rank
 from travel.schemas import OfferedOption, TripConstraints
-from travel.search import SearchFilters, find_options
+from travel.search import SearchFilters, TravelOption, find_options
 from travel.services.actions import log_action
 from travel.services.approvals import ApprovalError, record_decision, request_approval
 from travel.services.booking import book_itinerary, rebook_itinerary, split_directions
 from travel.services.disruptions import DisruptionOutcome, DisruptionResponse
 from travel.services.replies import (
+    describe_option,
     display_name,
     itinerary_lines,
     offer,
@@ -305,12 +306,22 @@ def plan_trip(
     legs = [(OUTBOUND, constraints.origin, constraints.destination, constraints.depart_date)]
     if constraints.return_date is not None:
         legs.append((RETURN, constraints.destination, constraints.origin, constraints.return_date))
-    if intent.itineraries.filter(status=ItineraryStatus.ACTIVE).exists():
-        legs = [leg for leg in legs if leg[0] in refresh]
+    committed = _committed_legs(intent)
+    kept_legs: dict[str, list[Flight]] = {}
+    if committed:
+        outbound_legs, return_legs = split_directions(committed, constraints.destination)
+        current = {OUTBOUND: outbound_legs, RETURN: return_legs}
+        kept_legs = {d: current[d] for d, *_ in legs if d not in refresh and current[d]}
 
     plans = []
+    kept: list[OfferedOption] = []
     filtered_out: dict[str, list[str]] = {}
     for direction, origin, destination, day in legs:
+        if direction in kept_legs:
+            kept.append(
+                _kept_option(intent, constraints, rules, direction, kept_legs[direction], now)
+            )
+            continue
         filters = _filters_for(constraints, direction)
         found = find_options(origin, destination, day)
         options = [option for option in found if filters.matches(option)]
@@ -333,7 +344,46 @@ def plan_trip(
             f"{direction}: {decision.kind.label} — {decision.reasoning}",
             email=email,
         )
-    _offer_plans(intent, email, plans, now, filtered_out)
+    _offer_plans(intent, email, plans, now, filtered_out, kept)
+
+
+def _committed_legs(intent: BookingIntent) -> list[Flight]:
+    """Flights the traveler settled on: the active booking, else a selection awaiting approval."""
+    active = intent.itineraries.filter(status=ItineraryStatus.ACTIVE).first()
+    if active is not None:
+        return active.legs()
+    pending = _pending_approval(intent)
+    return list(pending.flights.order_by("departs_at")) if pending else []
+
+
+def _kept_option(
+    intent: BookingIntent,
+    constraints: TripConstraints,
+    rules: PolicyRules,
+    direction: str,
+    legs: list[Flight],
+    now: datetime,
+) -> OfferedOption:
+    """Re-check an unchanged direction against today's policy, in the context of its alternatives,
+    so a combined selection is judged as a whole. Already-booked legs need no new approval."""
+    origin, destination = legs[0].origin, legs[-1].destination
+    alternatives = find_options(origin, destination, legs[0].departs_at.date())
+    kept_option = TravelOption(legs=tuple(legs))
+    if kept_option not in alternatives:
+        alternatives.append(kept_option)
+    evaluations = evaluate_options(alternatives, intent.traveler.seniority, rules, now.date())
+    evaluation = next(e for e in evaluations if e.option.flight_ids == kept_option.flight_ids)
+    booked = intent.itineraries.filter(status=ItineraryStatus.ACTIVE).exists()
+    return OfferedOption(
+        number=0,
+        direction=direction,
+        label=describe_option(kept_option),
+        flight_ids=kept_option.flight_ids,
+        price=kept_option.price,
+        can_book_now=booked or evaluation.is_compliant,
+        reasons=[] if booked else evaluation.reasons,
+        kept=True,
+    )
 
 
 def _filters_for(constraints: TripConstraints, direction: str) -> SearchFilters:
@@ -357,6 +407,7 @@ def _offer_plans(
     plans: list[DirectionPlan],
     now: datetime,
     filtered_out: dict[str, list[str]],
+    kept: list[OfferedOption],
 ) -> None:
     traveler = intent.traveler
     if combine([p.decision for p in plans]) == DecisionKind.NO_OPTIONS:
@@ -379,6 +430,12 @@ def _offer_plans(
         return
     offered: list[OfferedOption] = []
     points = []
+    for kept_option in kept:
+        offered.append(kept_option.model_copy(update={"number": len(offered) + 1}))
+        points.append(
+            f"keeping your current {kept_option.direction.lower()} ({kept_option.label}); "
+            f"only the {', '.join(p.direction.lower() for p in plans)} is re-offered"
+        )
     for plan in plans:
         options = offer(plan.direction, plan.ranked_shown, start=len(offered) + 1)
         offered += options
@@ -474,7 +531,10 @@ def _handle_selection(
         )
         return
     # Picks can arrive over several replies; a newer pick replaces an older one per direction.
-    by_direction = {o.direction: o for o in [*_earlier_picks(email.thread, offered), *new_picks]}
+    kept = [o for o in offered.values() if o.kept]
+    by_direction = {
+        o.direction: o for o in [*kept, *_earlier_picks(email.thread, offered), *new_picks]
+    }
     picked = list(by_direction.values())
     missing = {o.direction for o in offered.values()} - set(by_direction)
     if missing:
@@ -489,8 +549,11 @@ def _handle_selection(
         clarification.card["picked"] = [o.number for o in picked]
         clarification.save(update_fields=["card", "updated_at"])
         return
-    flight_ids = [fid for o in picked for fid in o.flight_ids]
+    booked = intent.itineraries.filter(status=ItineraryStatus.ACTIVE).exists()
+    to_book = [o for o in picked if not (booked and o.kept)]
+    flight_ids = [fid for o in to_book for fid in o.flight_ids]
     flights = sorted(Flight.objects.filter(pk__in=flight_ids), key=lambda f: f.departs_at)
+    _withdraw_pending_approval(intent, email, now)
     log_action(
         intent,
         ActionKind.PARSED_REQUEST,
@@ -515,6 +578,29 @@ def _handle_selection(
     _escalate(intent, email, flights, reasons, now)
 
 
+def _withdraw_pending_approval(intent: BookingIntent, email: Email, now: datetime) -> None:
+    """A new selection supersedes any request still waiting on the manager; tell them."""
+    pending = _pending_approval(intent)
+    if pending is None:
+        return
+    pending.status = ApprovalStatus.WITHDRAWN
+    pending.decided_at = now
+    pending.save(update_fields=["status", "decided_at", "updated_at"])
+    log_action(intent, ActionKind.REQUESTED_APPROVAL, "withdrawn: traveler changed the selection")
+    _reply(
+        email,
+        pending.approver,
+        ReplyPurpose.OTHER,
+        now,
+        points=[
+            f"{display_name(intent.traveler)} changed this trip, so this approval request is "
+            "withdrawn; no action needed",
+            "if the new selection needs approval, it comes as a separate request",
+        ],
+        thread=pending.request_email.thread,
+    )
+
+
 def _earlier_picks(thread: EmailThread, offered: dict[int, OfferedOption]) -> list[OfferedOption]:
     """Options already picked in replies since the latest offer, recorded on our follow-ups."""
     offer_email = thread.emails.exclude(options=[]).order_by("-sent_at", "-pk").first()
@@ -534,7 +620,13 @@ def _handle_approval_decision(
     decision: ApprovalDecision,
     now: datetime,
 ) -> None:
-    approval = _pending_approval(intent)
+    approval = (
+        intent.approvals.filter(
+            status=ApprovalStatus.PENDING, request_email__thread=email.thread
+        ).first()
+        if intent is not None
+        else None
+    )
     if intent is None or approval is None:
         _reply(
             email,
