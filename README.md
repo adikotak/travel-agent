@@ -126,8 +126,11 @@ one-click example requests; you can also type anything.
 - **Synchronous processing.** Each email waits on 1–3 LLM calls inside the request.
   Production would use a queue or workflow engine with retries. Processing is
   already all-or-nothing, so a failed call stores nothing.
-- **Real-email evals.** Tests prove the wiring with a faked model; next is a small
-  set of real emails with expected parses to measure parsing quality.
+- **Two test layers.** Fast tests run the real pipeline with a faked model; a live
+  suite (`tests/live`, `--live`) sends realistic emails through the real model and
+  checks outcomes: filters from the email, picking by flight number or across
+  replies, changes to booked trips, approvals, contracts, prompt injection. Next:
+  grow it into a scored eval set run on every prompt or model change.
 - **Simplifications:** one traveler per trip, flights only (no hotels or per diem),
   fixed airport time zones, and a pending approval isn't withdrawn if the trip
   changes.
@@ -142,7 +145,7 @@ uv run python3 manage.py seed_demo
 uv run python3 manage.py runserver   # http://localhost:8000
 ```
 
-Tests (no network, LLM faked): `uv run pytest`. Lint: `uv run ruff check .`
+Tests (no network, LLM faked): `uv run pytest`. Real-model flows: `uv run pytest tests/live --live -v`. Lint: `uv run ruff check .`
 
 | Path | What |
 |---|---|

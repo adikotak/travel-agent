@@ -356,3 +356,32 @@ def test_stated_requirements_filter_and_explain_empty_results(parses, traveler):
     body = last_outbound(thread).body
     assert "relax one of those" in body
     assert BookingIntent.objects.get().constraints["outbound_depart_after"] == "18:00:00"
+
+
+@pytest.mark.parametrize(
+    "deadline_hour, departs_days_out",
+    [
+        pytest.param(9, 9, id="morning-deadline-flies-day-before"),
+        pytest.param(18, 10, id="evening-deadline-flies-same-day"),
+    ],
+)
+@pytest.mark.django_db
+def test_deadline_without_departure_date_infers_it(
+    parses, traveler, deadline_hour, departs_days_out
+):
+    """'Be there by <time>' with no departure date sets one from the deadline instead of
+    asking for a date the traveler already implied."""
+    make_flight(origin="SFO", destination="JFK", days_out=departs_days_out, save=True)
+    deadline = at(10, deadline_hour).replace(tzinfo=None).isoformat()
+    parses.append(
+        {
+            "kind": "trip-details",
+            "origin": "SFO",
+            "destination": "JFK",
+            "arrive_outbound_by": deadline,
+        }
+    )
+    thread = send(traveler, "Need to be in NYC for a 9am meeting on the 22nd")
+    intent = BookingIntent.objects.get()
+    assert intent.constraints["depart_date"] == at(departs_days_out, 0).date().isoformat()
+    assert "What date do you need to leave?" not in last_outbound(thread).body

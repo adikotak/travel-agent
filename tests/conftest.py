@@ -8,13 +8,30 @@ from travel.agent.compose import compose_agent
 from travel.agent.parse import parse_agent
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--live", action="store_true", help="run tests/live against the real OpenAI model"
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    if config.getoption("--live"):
+        return
+    skip = pytest.mark.skip(reason="real-model test; run with --live")
+    for item in items:
+        if "live" in item.keywords:
+            item.add_marker(skip)
+
+
 @pytest.fixture(autouse=True)
-def fake_openai_key(settings):
+def fake_openai_key(request, settings):
     """Agents build their OpenAI model per run; tests override it, so the key is never used.
 
-    A real call made by mistake fails authentication instead of spending money.
+    A real call made by mistake fails authentication instead of spending money. Live tests
+    keep the configured key.
     """
-    settings.OPENAI_API_KEY = "test-key-not-real"
+    if "live" not in request.keywords:
+        settings.OPENAI_API_KEY = "test-key-not-real"
 
 
 @pytest.fixture

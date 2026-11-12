@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -216,6 +216,7 @@ def _handle_trip_details(
             intent.constraints["is_client_billable"] = code.is_client_billable
     intent.save()
 
+    _infer_departure_from_deadline(intent, email)
     questions += _missing_details(intent)
     if questions:
         _reply(email, sender, ReplyPurpose.CLARIFICATION, now, questions=questions)
@@ -243,6 +244,26 @@ def _directions_affected(changed: set[str]) -> set[str]:
 
 def _jsonable(value: Any) -> Any:
     return value.isoformat() if isinstance(value, date | datetime | time) else value
+
+
+def _infer_departure_from_deadline(intent: BookingIntent, email: Email) -> None:
+    """'Be there by Tuesday 9am' with no departure date: fly that day, or the day before if the
+    deadline is in the morning, rather than asking again for a date the traveler implied."""
+    constraints = intent.constraints
+    deadline = constraints.get("arrive_outbound_by")
+    if constraints.get("depart_date") or not deadline:
+        return
+    arrive_by = datetime.fromisoformat(deadline)
+    depart = arrive_by.date() - timedelta(days=1 if arrive_by.hour < 12 else 0)
+    constraints["depart_date"] = depart.isoformat()
+    intent.save(update_fields=["constraints", "updated_at"])
+    log_action(
+        intent,
+        ActionKind.UPDATED_CONSTRAINTS,
+        f"no departure date given; departing {depart:%a %b %-d} to arrive by "
+        f"{arrive_by:%a %b %-d %H:%M}",
+        email=email,
+    )
 
 
 def _missing_details(intent: BookingIntent) -> list[str]:

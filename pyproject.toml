@@ -27,3 +27,4 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 DJANGO_SETTINGS_MODULE = "config.settings"
 python_files = ["test_*.py"]
 testpaths = ["tests"]
+markers = ["live: calls the real OpenAI model (run with --live)"]
