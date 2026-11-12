@@ -88,7 +88,7 @@ def decide_direction(
         return DirectionDecision(
             kind=DecisionKind.AUTO_BOOK,
             chosen=best_compliant,
-            reasoning="within policy and fits stated preferences as well as any option",
+            reasoning=_auto_book_reasoning(best_compliant),
             **shown,
         )
     unmet = [p.label for p in _misses(best_compliant, blocking) - _misses(best, blocking)]
@@ -100,6 +100,16 @@ def decide_direction(
         + "; an option that meets it needs approval",
         **shown,
     )
+
+
+def _auto_book_reasoning(chosen: RankedOption) -> str:
+    option = chosen.evaluation.option
+    reasoning = (
+        f"within policy (${option.price:,.0f} against a ${chosen.evaluation.budget_usd:,.0f} cap)"
+    )
+    if chosen.matches:
+        reasoning += "; meets " + ", ".join(p.label.lower() for p in chosen.matches)
+    return reasoning
 
 
 def _unmet_request_reasoning(unmet: set[Preference], rejected: list[RankedOption]) -> str:
