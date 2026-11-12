@@ -321,6 +321,9 @@ class Itinerary(TimestampedModel):
     )
     booked_at = models.DateTimeField()
 
+    def legs(self) -> list[Flight]:
+        return list(self.flights.order_by("departs_at"))
+
     class Meta:
         verbose_name_plural = "itineraries"
 
