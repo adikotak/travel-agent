@@ -78,7 +78,8 @@ def handle_email(email: Email, sender: User, now: datetime) -> None:
         sender_is_approver=pending is not None and pending.approver == sender,
         current_trip=_describe_constraints(intent),
         offered_options=[
-            f"{o.number}. [{o.direction}] flights {o.flight_ids} ${o.price}"
+            f"{o.number}. [{o.direction}] {o.label} — ${o.price:,.0f}"
+            f"{'' if o.can_book_now else ' (needs approval)'}"
             for o in _last_offer(email.thread)
         ],
     )

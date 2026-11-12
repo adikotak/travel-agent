@@ -40,6 +40,7 @@ class OfferedOption(BaseModel):
 
     number: int
     direction: str
+    label: str
     flight_ids: list[int]
     price: Decimal
     can_book_now: bool

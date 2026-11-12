@@ -53,6 +53,7 @@ def offer(direction: str, ranked: list[RankedOption], start: int) -> list[Offere
         OfferedOption(
             number=start + i,
             direction=direction,
+            label=describe_option(r.evaluation.option),
             flight_ids=r.evaluation.option.flight_ids,
             price=r.evaluation.option.price,
             can_book_now=r.evaluation.is_compliant,
