@@ -1,4 +1,4 @@
-# Travel Policy (v1)
+# Travel Policy (v2)
 
 The policy is data, not prompt text: `TravelPolicy.rules` holds company
 defaults, `TravelPolicy.approval_rules` says what happens on a violation, and
@@ -41,9 +41,18 @@ A delay that changes nothing gets a heads-up only.
 
 ## Approval
 
-- **Manager approval:** over budget, cabin not allowed, inside the booking
-  window, above lowest logical fare, disruption rebooking over the limit.
-- **Always rejected:** never-allowed cabins.
+- **Manager approval:** over budget, inside the booking window, above lowest
+  logical fare, disruption rebooking over the limit. These are about money and
+  timing, where a manager can reasonably make an exception.
+- **Always rejected:** any cabin not allowed for the traveler's level, haul, or
+  client contract, and never-allowed cabins. Cabin is an entitlement, not a
+  spend question, so it isn't approvable.
+- **Explicit requests are never silently dropped:** if the traveler asked for a
+  cabin or an arrival time that no bookable option meets, the agent proposes
+  options and says why instead of auto-booking something else.
+
+v1 made disallowed cabins approvable; v2 (current) makes them hard limits.
+Itineraries record the policy version they were booked under.
 - **Auto-book** only when the option is in policy, a billable code is present
   for client-billable travel, and the request is unambiguous.
 

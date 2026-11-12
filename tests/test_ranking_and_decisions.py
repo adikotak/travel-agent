@@ -12,7 +12,7 @@ from travel.search import TravelOption
 
 APPROVAL_RULES = ApprovalRules(
     requires_approval=[Violation.OVER_BUDGET, Violation.INSIDE_BOOKING_WINDOW],
-    always_rejected=[Violation.NEVER_ALLOWED_CABIN],
+    always_rejected=[Violation.NEVER_ALLOWED_CABIN, Violation.CABIN_NOT_ALLOWED],
 )
 
 
@@ -181,3 +181,34 @@ def test_only_blocking_preferences_stop_auto_book():
     )
     assert decision.kind == DecisionKind.AUTO_BOOK
     assert decision.chosen.evaluation.option is other_airline
+
+
+class TestExplicitRequests:
+    """The agent never silently books something that misses what the traveler asked for."""
+
+    def test_requested_cabin_not_allowed_is_proposed_with_reason(self):
+        """Business is requested but rejected for the traveler's level, so economy is proposed
+        rather than booked, and the reasoning says why business is unavailable."""
+        economy = nonstop(price=Decimal("700"))
+        business = nonstop(cabin=Cabin.BUSINESS, price=Decimal("2800"))
+        ranked = rank(
+            [
+                evaluated(economy),
+                evaluated(business, Violation.CABIN_NOT_ALLOWED),
+            ],
+            make_user(),
+            requested_cabin=Cabin.BUSINESS,
+        )
+        decision = decide_direction(ranked, APPROVAL_RULES)
+        assert decision.kind == DecisionKind.PROPOSE
+        assert decision.chosen.evaluation.option is economy
+        assert "Cabin not allowed" in decision.reasoning
+
+    def test_no_option_meets_deadline_is_proposed(self):
+        """When every option lands after the stated deadline, nothing is booked automatically."""
+        late = nonstop(hour=17)
+        decision = decide_direction(
+            rank([evaluated(late)], make_user(), arrive_by=at(30, 15)), APPROVAL_RULES
+        )
+        assert decision.kind == DecisionKind.PROPOSE
+        assert "arrives in time" in decision.reasoning

@@ -7,6 +7,8 @@ from travel.ranking import Preference, RankedOption
 
 MAX_COMPLIANT_SHOWN = 3
 MAX_APPROVAL_SHOWN = 2
+# Things the traveler asked for outright; never silently book something that misses them.
+EXPLICIT_REQUESTS = frozenset({Preference.ARRIVES_ON_TIME, Preference.REQUESTED_CABIN})
 
 
 class DecisionKind(models.TextChoices):
@@ -46,9 +48,13 @@ def decide_direction(
     option needing approval, propose both. If nothing is compliant, the
     best-fitting approvable option goes to the manager.
 
+    Never auto-book an option that misses an explicit request (a cabin, an arrival
+    deadline); propose instead, citing why options that would meet it are ruled out.
+
     `blocking` limits which preferences can stop an auto-book (None means all);
     the rest still order the options.
     """
+    rejected = [r for r in ranked if is_rejected(r.evaluation, rules)]
     candidates = [r for r in ranked if not is_rejected(r.evaluation, rules)]
     can_book_now = [r for r in candidates if r.evaluation.is_compliant]
     needs_approval = [r for r in candidates if not r.evaluation.is_compliant]
@@ -71,6 +77,14 @@ def decide_direction(
         )
     best_compliant = can_book_now[0]
     if _misses(best_compliant, blocking) <= _misses(best, blocking):
+        unmet_requests = set(best_compliant.misses) & EXPLICIT_REQUESTS
+        if unmet_requests:
+            return DirectionDecision(
+                kind=DecisionKind.PROPOSE,
+                chosen=best_compliant,
+                reasoning=_unmet_request_reasoning(unmet_requests, rejected),
+                **shown,
+            )
         return DirectionDecision(
             kind=DecisionKind.AUTO_BOOK,
             chosen=best_compliant,
@@ -86,6 +100,15 @@ def decide_direction(
         + "; an option that meets it needs approval",
         **shown,
     )
+
+
+def _unmet_request_reasoning(unmet: set[Preference], rejected: list[RankedOption]) -> str:
+    labels = ", ".join(p.label.lower() for p in Preference if p in unmet)
+    reasoning = f"no bookable option meets the request ({labels})"
+    blocked = next((r for r in rejected if not set(r.misses) & unmet), None)
+    if blocked is not None:
+        reasoning += ": " + "; ".join(blocked.evaluation.reasons)
+    return reasoning
 
 
 def combine(decisions: list[DirectionDecision]) -> DecisionKind:

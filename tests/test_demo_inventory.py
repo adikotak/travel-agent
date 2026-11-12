@@ -70,20 +70,18 @@ class TestDemoScenarios:
         assert flight_numbers([decision.chosen]) == ["BA178"]
         assert decision.chosen.evaluation.option.cabin == Cabin.BUSINESS
 
-    def test_analyst_asking_for_business_sees_it_needs_approval(self):
-        """Sam asking for business on the same route is offered economy/premium to book now,
-        with business only as needing approval."""
+    def test_analyst_asking_for_business_is_offered_allowed_cabins_only(self):
+        """Sam asking for business is never offered it (cabin rules are hard in policy v2), and
+        the agent proposes allowed cabins with the reason instead of booking economy silently."""
         decision = plan("sam", "JFK", "LHR", 21, requested_cabin=Cabin.BUSINESS)
+        offered = decision.can_book_now + decision.needs_approval
         assert decision.kind == DecisionKind.PROPOSE
-        assert {r.evaluation.option.cabin for r in decision.can_book_now} <= {
+        assert offered
+        assert {r.evaluation.option.cabin for r in offered} <= {
             Cabin.ECONOMY,
             Cabin.PREMIUM_ECONOMY,
         }
-        assert all(
-            Violation.CABIN_NOT_ALLOWED in r.evaluation.violations
-            for r in decision.needs_approval
-            if r.evaluation.option.cabin == Cabin.BUSINESS
-        )
+        assert "Business isn't allowed" in decision.reasoning
 
     def test_cancellation_rebooks_onto_flight_that_makes_dinner(self):
         """Priya's 6am B6 is cancelled; the cheapest alternative lands after her 7pm dinner,
