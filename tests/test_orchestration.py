@@ -45,6 +45,14 @@ def last_outbound(thread: EmailThread):
     return thread.emails.filter(direction=EmailDirection.OUTBOUND).order_by("-pk").first()
 
 
+def pick(parses, traveler, thread, *flights):
+    """Reply choosing the offered options that contain these flights."""
+    offered = [OfferedOption.model_validate(o) for o in last_outbound(thread).options]
+    numbers = [o.number for o in offered if any(f.pk in o.flight_ids for f in flights)]
+    parses.append({"kind": "option-selection", "option_numbers": numbers})
+    send(traveler, f"options {numbers}", thread=thread)
+
+
 def trip(days_out: int, **details):
     day = (NOW + timedelta(days=days_out)).date().isoformat()
     return {
@@ -71,13 +79,18 @@ class TestRequests:
     ):
         """A client trip without a code gets a question; once ACME-001 is supplied, Acme's
         14-day window makes a 10-day-out trip need the manager's approval."""
-        make_flight(origin="SFO", destination="JFK", days_out=10, price=Decimal("300"), save=True)
+        flight = make_flight(
+            origin="SFO", destination="JFK", days_out=10, price=Decimal("300"), save=True
+        )
         parses.append(trip(10, is_client_billable=True))
         thread = send(traveler, "Need NYC on the 22nd for the Acme kickoff")
         assert "billable code" in last_outbound(thread).body
 
         parses.append({"kind": "trip-details", "billable_code": "acme-001"})
         send(traveler, "It's ACME-001", thread=thread)
+        offered = [OfferedOption.model_validate(o) for o in last_outbound(thread).options]
+        assert [o.can_book_now for o in offered] == [False]
+        pick(parses, traveler, thread, flight)
         intent = BookingIntent.objects.get()
         approval = intent.approvals.get()
         assert intent.billable_code.code == "ACME-001"
@@ -96,9 +109,10 @@ class TestRequests:
 
     def test_traveler_cannot_approve_own_trip(self, parses, traveler):
         """An approval reply from the traveler is refused; the approval stays pending."""
-        make_flight(origin="SFO", destination="JFK", days_out=3, save=True)
+        flight = make_flight(origin="SFO", destination="JFK", days_out=3, save=True)
         parses.append(trip(3))
         thread = send(traveler, "Need SFO to JFK in 3 days")
+        pick(parses, traveler, thread, flight)
         approval = BookingIntent.objects.get().approvals.get()
         parses.append({"kind": "approval-decision", "approved": True})
         send(traveler, "I approve", thread=thread)
@@ -185,6 +199,7 @@ def test_disruption_rebooks_and_emails_traveler_unprompted(parses, traveler):
     replacement = make_flight(origin="SFO", destination="JFK", days_out=20, hour=13, save=True)
     parses.append(trip(20))
     thread = send(traveler, "SFO to JFK")
+    pick(parses, traveler, thread, booked)
     intent = BookingIntent.objects.get()
     assert intent.itineraries.get().legs() == [booked]
 
@@ -281,3 +296,40 @@ def test_picks_split_across_replies_are_combined(parses, traveler):
     intent = BookingIntent.objects.get()
     assert intent.status == BookingIntentStatus.BOOKED
     assert len(intent.itineraries.get(status=ItineraryStatus.ACTIVE).legs()) == 2
+
+
+@pytest.mark.django_db
+def test_new_request_always_offers_before_booking(parses, traveler):
+    """Even a fully in-policy request is offered first; nothing is booked until a pick."""
+    flight = make_flight(origin="SFO", destination="JFK", days_out=20, save=True)
+    parses.append(trip(20))
+    thread = send(traveler, "SFO to JFK")
+    intent = BookingIntent.objects.get()
+    assert not intent.itineraries.exists()
+    assert [o["flight_ids"] for o in last_outbound(thread).options] == [[flight.pk]]
+    pick(parses, traveler, thread, flight)
+    intent.refresh_from_db()
+    assert intent.status == BookingIntentStatus.BOOKED
+
+
+@pytest.mark.django_db
+def test_changing_return_on_booked_trip_reoffers_only_return(parses, traveler):
+    """After booking a round trip, moving the return date re-offers only return flights, and
+    picking one replaces just the return leg while the booked outbound stays."""
+    outbound = make_flight(origin="SFO", destination="JFK", days_out=20, save=True)
+    old_return = make_flight(origin="JFK", destination="SFO", days_out=23, save=True)
+    new_return = make_flight(origin="JFK", destination="SFO", days_out=22, save=True)
+    parses.append(trip(20, return_date=(NOW + timedelta(days=23)).date().isoformat()))
+    thread = send(traveler, "SFO to JFK and back")
+    pick(parses, traveler, thread, outbound, old_return)
+
+    parses.append(
+        {"kind": "trip-details", "return_date": (NOW + timedelta(days=22)).date().isoformat()}
+    )
+    send(traveler, "can you move my flight back up one day?", thread=thread)
+    offered = [OfferedOption.model_validate(o) for o in last_outbound(thread).options]
+    assert {o.direction for o in offered} == {"Return"}
+
+    pick(parses, traveler, thread, new_return)
+    intent = BookingIntent.objects.get()
+    assert intent.itineraries.get(status=ItineraryStatus.ACTIVE).legs() == [outbound, new_return]

@@ -55,11 +55,13 @@ Full rules with reasoning: [docs/travel-policy.md](docs/travel-policy.md).
    billed to them: **Acme** is stricter (economy only, $350/$900, 14-day window),
    **Globex** looser (business allowed past 4h), **Initech** standard.
 
-**When the agent books on its own:** the option is within policy, a billable code
-is on file for client travel, and nothing the traveler explicitly asked for (a
-cabin, an arrival time) is being dropped. Otherwise it proposes, asks, or
-escalates. During a disruption, only a hard commitment (the arrival deadline)
-can stop it from rebooking automatically.
+**Options first, always.** Every request gets options, split into *can book now*
+and *needs manager approval*, with a recommendation and the reason. When the
+traveler picks, the agent books immediately if the pick is within policy (with a
+billable code on file for client travel), or routes it to the manager if not.
+The one exception is a disruption: the agent rebooks on its own when an in-policy
+flight keeps the traveler's arrival deadline, because waiting could lose the seat.
+On a booked trip, a change re-offers only the affected direction.
 
 ## Demo
 
@@ -84,8 +86,8 @@ one-click example requests; you can also type anything.
    in-policy options are ranked by her preferences, with a cabin column.
 3. Reply: *"Actually can I come back a day earlier?"* **Show:** the agent changes
    only the return date (kept the rest), records the revision, and re-offers.
-4. Reply: *"Option 1"* (the 6am JetBlue nonstop). **Show:** booked on its own, it's
-   within policy.
+4. Reply with the option number for the 6am JetBlue nonstop (B6615) and a return.
+   **Show:** booked immediately because both picks are within policy, with no manager needed.
 
 ### 2. Disruption that threatens the client dinner (Priya)
 1. **Disruption control** → **Cancel** on Priya's 6am flight.
@@ -98,19 +100,22 @@ one-click example requests; you can also type anything.
 1. As **Jordan**, **New request → "Client trip (no code yet)"** (Acme kickoff in 10 days).
 2. **Show:** the agent asks for the billable code instead of guessing.
 3. Reply: *"ACME-001"*. **Show:** Acme's contract applies. 10 days out passes our
-   7-day rule but fails Acme's 14-day rule, so it goes to Morgan for approval.
-4. Switch to **Morgan**, open *"Approval needed: Jordan Kim"*, reply *"Approved"*.
-5. Back to **Jordan**: booking confirmation. (Only the assigned approver counts. A
+   7-day rule but fails Acme's 14-day rule, so every option is under *needs manager approval*.
+4. Reply with an option number (one per direction). **Show:** it goes to Morgan, not booked.
+5. Switch to **Morgan**, open *"Approval needed: Jordan Kim"*, reply *"Approved"*.
+6. Back to **Jordan**: booking confirmation. (Only the assigned approver counts. A
    traveler replying "approved" on their own trip is refused.)
 
 ### 4. Seniority on long haul, and picking a trip back up (Victoria vs. Sam)
 1. As **Victoria**, **New request → "Long haul, business"** (JFK → London).
-   **Show:** booked on its own in British Airways business (her loyalty airline,
-   within 20% of the cheaper Virgin fare, under the VP cap).
+   **Show:** business is offered and British Airways is recommended (her loyalty
+   airline, within 20% of the cheaper Virgin fare, under the VP cap). Reply with
+   the recommended options and it's booked immediately, all within policy.
 2. As **Sam**, send the same request. **Show:** business isn't offered at his
    level, and the agent says so instead of silently booking economy.
 3. As **Victoria**, send a *new* email: *"Re TRIP-<id>: can I come back a day
-   later?"* **Show:** the agent picks up the existing trip from the reference.
+   later?"* **Show:** the agent picks up the existing trip from the reference and
+   re-offers only the return; her booked outbound stays as is.
 
 ## Trade-offs and what's next
 

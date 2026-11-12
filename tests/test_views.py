@@ -43,6 +43,9 @@ def booked_trip(client, parses, traveler):
         reverse("compose", args=[traveler.username]),
         {"subject": "NYC trip", "body": "SFO to JFK please"},
     )
+    thread = BookingIntent.objects.get().threads.get()
+    parses.append({"kind": "option-selection", "option_numbers": [1]})
+    client.post(reverse("reply", args=[traveler.username, thread.pk]), {"body": "Option 1"})
     return flight
 
 
@@ -79,11 +82,11 @@ def test_cancelling_flight_from_control_panel_emails_traveler(client, parses, tr
     flight = booked_trip(client, parses, traveler)
     thread = BookingIntent.objects.get().threads.get()
     outbound = thread.emails.filter(direction=EmailDirection.OUTBOUND)
-    assert outbound.count() == 1
+    assert outbound.count() == 2
     response = client.post(reverse("disrupt", args=[flight.pk]))
     assert response.status_code == 302
     assert DisruptionEvent.objects.get().processed_at is not None
-    assert outbound.count() == 2
+    assert outbound.count() == 3
     assert outbound.order_by("-pk").first().to_addresses == [traveler.email]
 
 

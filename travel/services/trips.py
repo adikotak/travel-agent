@@ -212,7 +212,20 @@ def _handle_trip_details(
     if questions:
         _reply(email, sender, ReplyPurpose.CLARIFICATION, now, questions=questions)
         return
-    plan_trip(intent, email, now)
+    plan_trip(intent, email, now, refresh=_directions_affected(set(changed)))
+
+
+RETURN_ONLY_FIELDS = {"return_date"}
+OUTBOUND_ONLY_FIELDS = {"depart_date", "arrive_outbound_by"}
+
+
+def _directions_affected(changed: set[str]) -> set[str]:
+    """Which directions a constraint change touches; a booked trip re-plans only those."""
+    if changed and changed <= RETURN_ONLY_FIELDS:
+        return {RETURN}
+    if changed and changed <= OUTBOUND_ONLY_FIELDS:
+        return {OUTBOUND}
+    return {OUTBOUND, RETURN}
 
 
 def _jsonable(value: Any) -> Any:
@@ -235,8 +248,18 @@ def _missing_details(intent: BookingIntent) -> list[str]:
     return questions
 
 
-def plan_trip(intent: BookingIntent, email: Email, now: datetime) -> None:
-    """Search, evaluate, rank, and decide each direction, then book, propose, or escalate."""
+def plan_trip(
+    intent: BookingIntent,
+    email: Email,
+    now: datetime,
+    refresh: set[str] = frozenset({OUTBOUND, RETURN}),
+) -> None:
+    """Search, evaluate, rank, and decide each direction, then offer options.
+
+    The agent always offers options first and books only after the traveler picks.
+    On an already-booked trip, only the directions in `refresh` are re-offered; the
+    rest stay booked.
+    """
     try:
         constraints = TripConstraints.model_validate(intent.constraints)
     except ValidationError as error:
@@ -248,6 +271,8 @@ def plan_trip(intent: BookingIntent, email: Email, now: datetime) -> None:
     legs = [(OUTBOUND, constraints.origin, constraints.destination, constraints.depart_date)]
     if constraints.return_date is not None:
         legs.append((RETURN, constraints.destination, constraints.origin, constraints.return_date))
+    if intent.itineraries.filter(status=ItineraryStatus.ACTIVE).exists():
+        legs = [leg for leg in legs if leg[0] in refresh]
 
     plans = []
     for direction, origin, destination, day in legs:
@@ -273,19 +298,17 @@ def plan_trip(intent: BookingIntent, email: Email, now: datetime) -> None:
             f"{direction}: {decision.kind.label} — {decision.reasoning}",
             email=email,
         )
-    _act_on_plans(intent, email, plans, policy, now)
+    _offer_plans(intent, email, plans, now)
 
 
-def _act_on_plans(
+def _offer_plans(
     intent: BookingIntent,
     email: Email,
     plans: list[DirectionPlan],
-    policy: TravelPolicy,
     now: datetime,
 ) -> None:
     traveler = intent.traveler
-    kind = combine([p.decision for p in plans])
-    if kind == DecisionKind.NO_OPTIONS:
+    if combine([p.decision for p in plans]) == DecisionKind.NO_OPTIONS:
         empty = [p.direction for p in plans if p.decision.kind == DecisionKind.NO_OPTIONS]
         _reply(
             email,
@@ -296,34 +319,21 @@ def _act_on_plans(
             questions=["Would a different date or nearby airport work?"],
         )
         return
-    chosen = [leg for p in plans for leg in p.decision.chosen.evaluation.option.legs]
-    reasoning = "; ".join(f"{p.direction}: {p.decision.reasoning}" for p in plans)
-    if kind == DecisionKind.AUTO_BOOK:
-        itinerary = book_for_intent(intent, chosen, policy, now, f"auto-booked — {reasoning}")
-        _reply(
-            email,
-            traveler,
-            ReplyPurpose.BOOKED,
-            now,
-            points=[f"booked automatically because {reasoning}"],
-            itinerary=itinerary.legs(),
-        )
-        return
-    if kind == DecisionKind.REQUEST_APPROVAL:
-        reasons = [r for p in plans for r in p.decision.chosen.evaluation.reasons]
-        _escalate(intent, email, chosen, reasons, now)
-        return
     offered: list[OfferedOption] = []
+    points = []
     for plan in plans:
-        offered += offer(plan.direction, plan.ranked_shown, start=len(offered) + 1)
-    _reply(
-        email,
-        traveler,
-        ReplyPurpose.OPTIONS,
-        now,
-        points=[reasoning],
-        offered=offered,
+        options = offer(plan.direction, plan.ranked_shown, start=len(offered) + 1)
+        offered += options
+        recommended = plan.decision.chosen.evaluation.option.flight_ids
+        number = next(o.number for o in options if o.flight_ids == recommended)
+        points.append(
+            f"recommended {plan.direction.lower()}: option {number} ({plan.decision.reasoning})"
+        )
+    points.append(
+        "picking an option under 'can book now' books it right away; "
+        "an option needing approval goes to the manager first"
     )
+    _reply(email, traveler, ReplyPurpose.OPTIONS, now, points=points, offered=offered)
 
 
 def _escalate(
