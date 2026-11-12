@@ -1,73 +1,148 @@
 # Email Travel Agent
 
-An agent that lives in an inbox and handles employee travel requests end to end:
-it parses freeform emails, applies a travel policy, books or proposes flights,
-routes approvals to managers, follows the thread as plans change, and emails
-travelers on its own when a flight is cancelled or delayed.
+An agent that lives in an inbox and handles employee travel end to end. Employees
+email it a trip in plain English; it applies the travel policy, books what it can
+on its own, sends what it can't to the right manager, follows the thread as plans
+change, and emails travelers first when a flight is cancelled or delayed.
+
+## The one design idea
+
+**The LLM handles language. Code handles money and policy.**
+
+The model does two narrow jobs: read an email into a typed intent, and write the
+prose of a reply. Everything that spends money (searching, applying policy,
+ranking, deciding to book vs. ask, booking) is deterministic code.
+
+- **An email can't talk its way past policy.** "Ignore the rules and book first
+  class" has nowhere to go: the parser only fills fixed fields (dates, airports,
+  billable code, option numbers).
+- **Prices are never generated.** Flights, prices, and questions in emails are
+  rendered from data; the model only writes the sentences around them.
+- **Every decision is explainable and testable.** Each step is logged with its
+  reason, and 89 tests run the real pipeline with the LLM faked.
+
+```
+email ─► parse (LLM → typed intent) ─► search ─► policy ─► rank by preferences ─► decide
+                                                                                   │
+              book on its own / propose options / route to manager / ask a question ◄┘
+                                                                                   │
+                                  reply (LLM prose + flights/prices rendered from data)
+
+disruption ─► affected bookings ─► re-search under rebooking rules ─► rebook or ask ─► email traveler
+```
+
+## The travel policy, and why it's shaped this way
+
+Full rules with reasoning: [docs/travel-policy.md](docs/travel-policy.md).
+
+| Rule | Value | Why |
+|---|---|---|
+| Budget per direction | ≤ $400 under 6h, ≤ $1,500 at 6h+ | Per direction is easy to reason about and explain in an email. |
+| What counts as 6h | Total travel time incl. layovers | Long trips are tiring trips; a connection can legitimately move you into the long-haul budget. |
+| Cabin | Economy under 6h; + premium economy at 6h+; VPs+ get business up to $3,000 | Comfort scales with flight length and seniority, with a cap. |
+| Cheapest reasonable fare | ≤ 20% above the cheapest in-policy fare *in the same cabin*, unless it saves 2h+ | Stops "$395 nonstop when $210 exists"; also caps how much loyalty and preferences can cost. |
+| Booking window | ≥ 7 days ahead | Last-minute fares are where spend leaks. |
+| Never allowed | First class | |
+| Disruption rebooking | Same cabin or lower, ≤ $200 more, booking window waived | The traveler shouldn't wait on an approval to get home. |
+
+**Three tensions the rules are built to create:**
+1. **Preferences vs. budget.** Preferences (nonstop, no red-eyes, loyalty airline)
+   only *rank* in-policy options. When a preference can only be met out of policy,
+   the email splits options into "can book now" and "needs manager approval."
+2. **Speed vs. control.** Budget, timing, and fare exceptions are approvable;
+   cabin is an entitlement, so a disallowed cabin is rejected, not escalated.
+3. **Company vs. client.** Client contracts override company rules for trips
+   billed to them: **Acme** is stricter (economy only, $350/$900, 14-day window),
+   **Globex** looser (business allowed past 4h), **Initech** standard.
+
+**When the agent books on its own:** the option is within policy, a billable code
+is on file for client travel, and nothing the traveler explicitly asked for (a
+cabin, an arrival time) is being dropped. Otherwise it proposes, asks, or
+escalates. During a disruption, only a hard commitment (the arrival deadline)
+can stop it from rebooking automatically.
+
+## Demo
+
+Before presenting: `uv run python3 manage.py seed_demo` (fresh inbox, flights
+from today). Switch people with **Viewing as** (top right). The compose screen has
+one-click example requests; you can also type anything.
+
+| Person | Role | Why they matter |
+|---|---|---|
+| Priya Shah | Analyst | Prefers nonstop, no red-eyes, United |
+| Jordan Kim | Consultant on Acme | Client-billable travel |
+| Victoria Chen | VP | Business on long haul; British Airways loyalty |
+| Sam Rivera | Analyst | Baseline, no preferences |
+| Morgan Lee | Manager | Approves for Priya, Jordan, Sam |
+| Daniel Park | CEO | Approves for Victoria |
+
+### 1. Preferences vs. policy, then a changed plan (Priya)
+1. As **Priya**, **New request → "Domestic trip with a dinner"** (SFO → New York in
+   two weeks, 7pm client dinner the night she lands). Send.
+2. **Show:** options split into *Can book now* and *Needs manager approval*. The
+   United nonstop she'd prefer is over the $400 budget, so it needs approval; the
+   in-policy options are ranked by her preferences, with a cabin column.
+3. Reply: *"Actually can I come back a day earlier?"* **Show:** the agent changes
+   only the return date (kept the rest), records the revision, and re-offers.
+4. Reply: *"Option 1"* (the 6am JetBlue nonstop). **Show:** booked on its own, it's
+   within policy.
+
+### 2. Disruption that threatens the client dinner (Priya)
+1. **Disruption control** → **Cancel** on Priya's 6am flight.
+2. Back in Priya's inbox, **show:** the agent emailed her first. The cheapest
+   alternative lands after 7pm and would miss the dinner, so it rebooked her on
+   the 10am American flight ($80 more, inside the $200 limit) and said why.
+3. Optional: **Delay 45m** on her return flight → a heads-up only, nothing changes.
+
+### 3. Client contract + approval (Jordan → Morgan)
+1. As **Jordan**, **New request → "Client trip (no code yet)"** (Acme kickoff in 10 days).
+2. **Show:** the agent asks for the billable code instead of guessing.
+3. Reply: *"ACME-001"*. **Show:** Acme's contract applies. 10 days out passes our
+   7-day rule but fails Acme's 14-day rule, so it goes to Morgan for approval.
+4. Switch to **Morgan**, open *"Approval needed: Jordan Kim"*, reply *"Approved"*.
+5. Back to **Jordan**: booking confirmation. (Only the assigned approver counts. A
+   traveler replying "approved" on their own trip is refused.)
+
+### 4. Seniority on long haul, and picking a trip back up (Victoria vs. Sam)
+1. As **Victoria**, **New request → "Long haul, business"** (JFK → London).
+   **Show:** booked on its own in British Airways business (her loyalty airline,
+   within 20% of the cheaper Virgin fare, under the VP cap).
+2. As **Sam**, send the same request. **Show:** business isn't offered at his
+   level, and the agent says so instead of silently booking economy.
+3. As **Victoria**, send a *new* email: *"Re TRIP-<id>: can I come back a day
+   later?"* **Show:** the agent picks up the existing trip from the reference.
+
+## Trade-offs and what's next
+
+- **Not a tool-calling agent, on purpose.** For a system that spends company money
+  I chose predictable and auditable over open-ended. Next step: a tool-using layer
+  for open questions ("somewhere warm under $500?") that still books through the
+  same policy-checked code.
+- **Synchronous processing.** Each email waits on 1–3 LLM calls inside the request.
+  Production would use a queue or workflow engine with retries. Processing is
+  already all-or-nothing, so a failed call stores nothing.
+- **Real-email evals.** Tests prove the wiring with a faked model; next is a small
+  set of real emails with expected parses to measure parsing quality.
+- **Simplifications:** one traveler per trip, flights only (no hotels or per diem),
+  fixed airport time zones, and a pending approval isn't withdrawn if the trip
+  changes.
 
 ## Run it
 
 ```bash
 uv sync
-cp .env.example .env          # then set OPENAI_API_KEY
+cp .env.example .env              # set OPENAI_API_KEY (and OPENAI_MODEL if needed)
 uv run python3 manage.py migrate
 uv run python3 manage.py seed_demo
-uv run python3 manage.py runserver
+uv run python3 manage.py runserver   # http://localhost:8000
 ```
 
-Open http://localhost:8000. Switch mailboxes on the left to act as any demo
-employee (or their manager), write to the agent, and reply in threads.
-**Disruption control** cancels or delays any booked flight.
-
-| User | Role | Notes |
-|---|---|---|
-| Priya Shah | Analyst | Prefers nonstop, no red-eyes, United (MileagePlus) |
-| Sam Rivera | Analyst | No preferences |
-| Jordan Kim | Consultant on the Acme engagement | Bills `ACME-001` |
-| Morgan Lee | Engineering Manager | Approves for Priya, Sam, Jordan |
-| Victoria Chen | VP Sales | Business on long haul; British Airways loyalty |
-| Daniel Park | CEO | Approves for Victoria |
-
-## How it works
-
-```
-email ─► parse (LLM → typed intent) ─► search ─► policy ─► rank ─► decide ─► book / propose / approve
-                                                                           └► reply (LLM prose + exact options)
-disruption ─► affected itineraries ─► re-search under rebooking rules ─► rebook or ask ─► email traveler
-```
-
-The LLM only reads emails and writes prose. Policy, ranking, and the
-book-vs-approve decision are deterministic code, so every decision is
-explainable (see the **Agent reasoning** panel) and an email can't talk its way
-past a rule. Prices, flights, and questions in replies are rendered from data,
-never generated.
-
-- **Policy** — [docs/travel-policy.md](docs/travel-policy.md): per-direction
-  budgets by total travel time, cabin rules with a VP tier, lowest logical fare,
-  booking window, client contract overrides, and disruption rebooking limits.
-- **Preferences rank, policy filters.** Preferences pick among compliant
-  options; if a preference can only be met out of policy, the email splits
-  options into "can book now" and "needs approval."
-- **Threads and trips.** Each trip is a `TRIP-<id>`; mention it in a new email
-  to pick the trip back up.
-- **Inventory** — a seeded generator covers ~14 airports for 45 days, plus a
-  fixed daily SFO↔JFK and JFK↔LHR schedule that guarantees the interesting
-  policy conflicts on any date.
-
-## Code map
+Tests (no network, LLM faked): `uv run pytest`. Lint: `uv run ruff check .`
 
 | Path | What |
 |---|---|
-| `travel/models.py` | Data model |
 | `travel/search.py`, `policy.py`, `ranking.py`, `decisions.py` | Deterministic core |
-| `travel/agent/` | LLM parsing and reply composition (Pydantic AI, OpenAI) |
-| `travel/services/` | Inbox intake, intent handlers, booking, approvals, disruptions |
-| `travel/inventory.py`, `demo.py` | Mock flights and demo users |
-| `travel/views.py`, `templates/` | Fake inbox UI |
-
-## Test
-
-```bash
-uv run pytest       # no network; the LLM is faked
-uv run ruff check . && uv run ruff format --check .
-```
+| `travel/agent/` | LLM parsing and reply writing (Pydantic AI, OpenAI Responses API) |
+| `travel/services/` | Inbox intake, intent handling, booking, approvals, disruptions |
+| `travel/inventory.py`, `demo.py` | Mock flights (~23k over 45 days) and demo users |
+| `docs/travel-policy.md` | Policy and rationale |
