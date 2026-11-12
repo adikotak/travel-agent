@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -21,6 +21,13 @@ class TripConstraints(BaseModel):
     arrive_outbound_by: datetime | None = None
     requested_cabin: Cabin | None = None
     airlines: list[str] = Field(default_factory=list)
+    excluded_airlines: list[str] = Field(default_factory=list)
+    nonstop_only: bool = False
+    outbound_depart_after: time | None = None
+    outbound_depart_before: time | None = None
+    return_depart_after: time | None = None
+    return_depart_before: time | None = None
+    max_price_usd: int | None = None
     is_client_billable: bool = False
     notes: str = ""
 

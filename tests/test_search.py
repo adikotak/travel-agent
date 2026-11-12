@@ -1,10 +1,11 @@
-from datetime import timedelta
+from datetime import time, timedelta
+from decimal import Decimal
 
 import pytest
 
 from tests.factories import TODAY, at, make_flight
 from travel.models import Cabin
-from travel.search import TravelOption, find_options
+from travel.search import SearchFilters, TravelOption, find_options
 
 SEARCH_DAY = TODAY + timedelta(days=10)
 
@@ -57,3 +58,29 @@ class TestFindOptions:
         first = make_flight(departs_at=at(10, 8), duration_minutes=240)
         second = make_flight(departs_at=at(10, 13, 30), duration_minutes=120)
         assert TravelOption(legs=(first, second)).total_minutes == 240 + 90 + 120
+
+
+class TestSearchFilters:
+    """Requirements stated in an email hide options that fail them."""
+
+    @pytest.mark.parametrize(
+        "filters, matches",
+        [
+            pytest.param(SearchFilters(), True, id="no-filters"),
+            pytest.param(SearchFilters(nonstop_only=True), False, id="nonstop-only"),
+            pytest.param(SearchFilters(depart_after=time(9)), False, id="departs-too-early"),
+            pytest.param(SearchFilters(depart_before=time(7)), False, id="departs-too-late"),
+            pytest.param(SearchFilters(depart_after=time(7)), True, id="inside-window"),
+            pytest.param(SearchFilters(max_price=Decimal("399")), False, id="over-max-price"),
+            pytest.param(SearchFilters(airlines=("UA",)), False, id="partly-other-airline"),
+            pytest.param(SearchFilters(excluded_airlines=("DL",)), False, id="excluded-airline"),
+            pytest.param(SearchFilters(excluded_airlines=("NK",)), True, id="unrelated-exclusion"),
+        ],
+    )
+    def test_matches(self, filters, matches):
+        """A one-stop UA+DL option departing 08:00 for $400 passes or fails each requirement."""
+        first = make_flight(departs_at=at(10, 8), airline="UA", price=Decimal("200"))
+        second = make_flight(
+            departs_at=first.arrives_at + timedelta(hours=1), airline="DL", price=Decimal("200")
+        )
+        assert filters.matches(TravelOption(legs=(first, second))) is matches

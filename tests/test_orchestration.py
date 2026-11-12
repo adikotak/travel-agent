@@ -333,3 +333,26 @@ def test_changing_return_on_booked_trip_reoffers_only_return(parses, traveler):
     pick(parses, traveler, thread, new_return)
     intent = BookingIntent.objects.get()
     assert intent.itineraries.get(status=ItineraryStatus.ACTIVE).legs() == [outbound, new_return]
+
+
+@pytest.mark.django_db
+def test_stated_requirements_filter_and_explain_empty_results(parses, traveler):
+    """'Nonstop only' hides the connection; an impossible extra requirement yields a reply that
+    names the requirements instead of an unexplained 'no flights'."""
+    direct = make_flight(origin="SFO", destination="JFK", days_out=20, hour=9, save=True)
+    first = make_flight(origin="SFO", destination="DEN", days_out=20, hour=7, save=True)
+    make_flight(
+        origin="DEN",
+        destination="JFK",
+        departs_at=first.arrives_at + timedelta(hours=1),
+        save=True,
+    )
+    parses.append(trip(20, nonstop_only=True))
+    thread = send(traveler, "SFO to JFK, nonstop please")
+    assert [o["flight_ids"] for o in last_outbound(thread).options] == [[direct.pk]]
+
+    parses.append({"kind": "trip-details", "outbound_depart_after": "18:00"})
+    send(traveler, "only evening flights", thread=thread)
+    body = last_outbound(thread).body
+    assert "relax one of those" in body
+    assert BookingIntent.objects.get().constraints["outbound_depart_after"] == "18:00:00"

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 from decimal import Decimal
 
 from travel.models import Cabin, Flight
@@ -81,3 +81,43 @@ def find_options(origin: str, destination: str, on_date: date) -> list[TravelOpt
         )
         options.extend(TravelOption(legs=(first_leg, second_leg)) for second_leg in connections)
     return options
+
+
+@dataclass(frozen=True)
+class SearchFilters:
+    """Hard requirements the traveler stated for one direction; options failing any are hidden."""
+
+    nonstop_only: bool = False
+    depart_after: time | None = None
+    depart_before: time | None = None
+    max_price: Decimal | None = None
+    airlines: tuple[str, ...] = ()
+    excluded_airlines: tuple[str, ...] = ()
+
+    def matches(self, option: TravelOption) -> bool:
+        departs = option.first_leg.departs_at.time()
+        return not (
+            (self.nonstop_only and option.stops > 0)
+            or (self.depart_after is not None and departs < self.depart_after)
+            or (self.depart_before is not None and departs > self.depart_before)
+            or (self.max_price is not None and option.price > self.max_price)
+            or (self.airlines and not set(option.airlines) <= set(self.airlines))
+            or set(option.airlines) & set(self.excluded_airlines)
+        )
+
+    def describe(self) -> list[str]:
+        """The active requirements in words, for explaining an empty result."""
+        parts = []
+        if self.nonstop_only:
+            parts.append("nonstop only")
+        if self.depart_after is not None:
+            parts.append(f"departing after {self.depart_after:%H:%M}")
+        if self.depart_before is not None:
+            parts.append(f"departing before {self.depart_before:%H:%M}")
+        if self.max_price is not None:
+            parts.append(f"under ${self.max_price:,.0f}")
+        if self.airlines:
+            parts.append("only " + ", ".join(self.airlines))
+        if self.excluded_airlines:
+            parts.append("not " + ", ".join(self.excluded_airlines))
+        return parts

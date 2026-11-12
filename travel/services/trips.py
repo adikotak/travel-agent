@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time
+from decimal import Decimal
 from typing import Any
 
 from pydantic import ValidationError
@@ -35,7 +36,7 @@ from travel.models import (
 from travel.policy import approval_rules, effective_rules, evaluate_options
 from travel.ranking import RankedOption, rank
 from travel.schemas import OfferedOption, TripConstraints
-from travel.search import find_options
+from travel.search import SearchFilters, find_options
 from travel.services.actions import log_action
 from travel.services.approvals import ApprovalError, record_decision, request_approval
 from travel.services.booking import book_itinerary, rebook_itinerary, split_directions
@@ -59,6 +60,13 @@ TRIP_FIELDS = (
     "arrive_outbound_by",
     "requested_cabin",
     "airlines",
+    "excluded_airlines",
+    "nonstop_only",
+    "outbound_depart_after",
+    "outbound_depart_before",
+    "return_depart_after",
+    "return_depart_before",
+    "max_price_usd",
     "is_client_billable",
 )
 
@@ -215,8 +223,13 @@ def _handle_trip_details(
     plan_trip(intent, email, now, refresh=_directions_affected(set(changed)))
 
 
-RETURN_ONLY_FIELDS = {"return_date"}
-OUTBOUND_ONLY_FIELDS = {"depart_date", "arrive_outbound_by"}
+RETURN_ONLY_FIELDS = {"return_date", "return_depart_after", "return_depart_before"}
+OUTBOUND_ONLY_FIELDS = {
+    "depart_date",
+    "arrive_outbound_by",
+    "outbound_depart_after",
+    "outbound_depart_before",
+}
 
 
 def _directions_affected(changed: set[str]) -> set[str]:
@@ -229,7 +242,7 @@ def _directions_affected(changed: set[str]) -> set[str]:
 
 
 def _jsonable(value: Any) -> Any:
-    return value.isoformat() if isinstance(value, date | datetime) else value
+    return value.isoformat() if isinstance(value, date | datetime | time) else value
 
 
 def _missing_details(intent: BookingIntent) -> list[str]:
@@ -275,12 +288,13 @@ def plan_trip(
         legs = [leg for leg in legs if leg[0] in refresh]
 
     plans = []
+    filtered_out: dict[str, list[str]] = {}
     for direction, origin, destination, day in legs:
-        options = [
-            option
-            for option in find_options(origin, destination, day)
-            if not constraints.airlines or set(option.airlines) <= set(constraints.airlines)
-        ]
+        filters = _filters_for(constraints, direction)
+        found = find_options(origin, destination, day)
+        options = [option for option in found if filters.matches(option)]
+        if found and not options:
+            filtered_out[direction] = filters.describe()
         evaluations = evaluate_options(options, intent.traveler.seniority, rules, now.date())
         ranked = rank(
             evaluations,
@@ -298,7 +312,22 @@ def plan_trip(
             f"{direction}: {decision.kind.label} — {decision.reasoning}",
             email=email,
         )
-    _offer_plans(intent, email, plans, now)
+    _offer_plans(intent, email, plans, now, filtered_out)
+
+
+def _filters_for(constraints: TripConstraints, direction: str) -> SearchFilters:
+    outbound = direction == OUTBOUND
+    after = constraints.outbound_depart_after if outbound else constraints.return_depart_after
+    before = constraints.outbound_depart_before if outbound else constraints.return_depart_before
+    max_price = constraints.max_price_usd
+    return SearchFilters(
+        nonstop_only=constraints.nonstop_only,
+        depart_after=after,
+        depart_before=before,
+        max_price=Decimal(max_price) if max_price is not None else None,
+        airlines=tuple(constraints.airlines),
+        excluded_airlines=tuple(constraints.excluded_airlines),
+    )
 
 
 def _offer_plans(
@@ -306,17 +335,25 @@ def _offer_plans(
     email: Email,
     plans: list[DirectionPlan],
     now: datetime,
+    filtered_out: dict[str, list[str]],
 ) -> None:
     traveler = intent.traveler
     if combine([p.decision for p in plans]) == DecisionKind.NO_OPTIONS:
         empty = [p.direction for p in plans if p.decision.kind == DecisionKind.NO_OPTIONS]
+        points = []
+        for direction in empty:
+            if direction in filtered_out:
+                requirements = ", ".join(filtered_out[direction])
+                points.append(f"no {direction.lower()} flights match your request ({requirements})")
+            else:
+                points.append(f"no bookable {direction.lower()} flights on that date")
         _reply(
             email,
             traveler,
             ReplyPurpose.NO_OPTIONS,
             now,
-            points=[f"no bookable {d.lower()} flights on that date" for d in empty],
-            questions=["Would a different date or nearby airport work?"],
+            points=points,
+            questions=["Would you like me to relax one of those, or try a different date?"],
         )
         return
     offered: list[OfferedOption] = []
